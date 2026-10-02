@@ -1,0 +1,260 @@
+{
+  "id": "SC6lKn5r9ZdxhpOd",
+  "name": "Backup n8n workflows to GitHub",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-10-02T09:43:41.023Z",
+  "updatedAt": "2026-10-02T09:58:42.807Z",
+  "isArchived": false,
+  "versionId": "9988b4ff-48ef-47fc-a18e-72a5b0046471",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -752,
+        16
+      ],
+      "id": "ce68dfdc-84eb-44c7-9b6c-bb2adc6b201e"
+    },
+    {
+      "parameters": {
+        "filters": {},
+        "requestOptions": {}
+      },
+      "name": "Get all workflows",
+      "type": "n8n-nodes-base.n8n",
+      "typeVersion": 1,
+      "position": [
+        -544,
+        16
+      ],
+      "id": "eccb8cfa-892c-4889-b304-1a518ae4eb43",
+      "credentials": {
+        "n8nApi": {
+          "id": "UkufM3eu0ur7YqLt",
+          "name": "n8n account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "get",
+        "owner": {
+          "__rl": true,
+          "value": "toestedsioapo",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "n8n-local-backups",
+          "mode": "name"
+        },
+        "filePath": "=workflows/{{ $json.id }}.json",
+        "asBinaryProperty": false,
+        "additionalParameters": {}
+      },
+      "name": "Check if file exists",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        16
+      ],
+      "id": "d38008e1-4c90-43a8-9b34-dd4e551c0d4c",
+      "webhookId": "69f15273-3f41-4cc4-9822-d779cd150fff",
+      "credentials": {
+        "githubApi": {
+          "id": "6A2NPUW9J04laxxG",
+          "name": "GitHub account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "file-exists-check",
+              "leftValue": "={{ $json.sha }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "File exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -96,
+        16
+      ],
+      "id": "54999055-f5a9-496f-a844-2cc21e4846e4"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "edit",
+        "owner": {
+          "__rl": true,
+          "value": "YOUR_GITHUB_USERNAME",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "YOUR_REPO_NAME",
+          "mode": "name"
+        },
+        "filePath": "=workflows/{{ $('Get all workflows').item.json.id }}.json",
+        "fileContent": "={{ JSON.stringify($('Get all workflows').item.json, null, 2) }}",
+        "commitMessage": "=Backup: {{ $('Get all workflows').item.json.name }}"
+      },
+      "name": "Update file",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        144,
+        -96
+      ],
+      "id": "efb2214a-e3e0-403f-ac38-31aef59eebeb",
+      "webhookId": "6f0cc248-d824-4e9f-8390-13bc4a863b40",
+      "credentials": {
+        "githubApi": {
+          "id": "6A2NPUW9J04laxxG",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "owner": {
+          "__rl": true,
+          "value": "YOUR_GITHUB_USERNAME",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "YOUR_REPO_NAME",
+          "mode": "name"
+        },
+        "filePath": "=workflows/{{ $('Get all workflows').item.json.id }}.json",
+        "fileContent": "={{ JSON.stringify($('Get all workflows').item.json, null, 2) }}",
+        "commitMessage": "=Add backup: {{ $('Get all workflows').item.json.name }}"
+      },
+      "name": "Create file",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        144,
+        112
+      ],
+      "id": "22a3dfb7-795e-47ef-ab33-1c6ba76d0406",
+      "webhookId": "09745bb9-bb15-46ab-af55-977c3c7acbc3",
+      "credentials": {
+        "githubApi": {
+          "id": "6A2NPUW9J04laxxG",
+          "name": "GitHub account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get all workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get all workflows": {
+      "main": [
+        [
+          {
+            "node": "Check if file exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if file exists": {
+      "main": [
+        [
+          {
+            "node": "File exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File exists?": {
+      "main": [
+        [
+          {
+            "node": "Update file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "SC6lKn5r9ZdxhpOd",
+      "projectId": "268xtrXs54BYUBJ0",
+      "createdAt": "2026-10-02T09:43:41.029Z",
+      "updatedAt": "2026-10-02T09:43:41.029Z"
+    }
+  ],
+  "activeVersion": null
+}
