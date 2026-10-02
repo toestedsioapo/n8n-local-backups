@@ -1,0 +1,302 @@
+{
+  "id": "T3p9ThEeOvll1wzk",
+  "name": "Executive Assistant (Calendar Scheduling)",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-13T13:19:46.335Z",
+  "updatedAt": "2026-09-15T09:05:14.731Z",
+  "isArchived": false,
+  "versionId": "50d99997-fceb-4ad8-943f-2c5e96f3c7fc",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "maxResults": 1,
+        "filters": {
+          "sender": "ijisantos24@gmail.com"
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b8d1121d-de7d-44c0-acb1-3ee0150d478e",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "0acaed09-423c-4c78-88bc-7ceface01f83",
+      "name": "Wait",
+      "webhookId": "af9801ab-cd05-4187-bb3d-aa2ffc6540a0"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "models/gemini-3-flash-preview"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Extract meeting details from this email. Return ONLY valid JSON, no markdown, no explanation.\n\nToday's reference date (the date this email was sent): {{ $json.internalDate }}\n\nSubject: {{ $json.Subject }}\nSnippet: {{ $json.snippet }}\nFrom: {{ $json.From }}\n\nCalculate \"resolved_date\" by finding the next occurrence of the mentioned day (e.g. \"Thursday\") AFTER the reference date above.\n\n{\n  \"proposed_day\": \"...\",\n  \"resolved_date\": \"YYYY-MM-DD\",\n  \"start_time\": \"HH:MM\",\n  \"end_time\": \"HH:MM\",\n  \"requester_timezone_hint\": \"...\",\n  \"requester_email\": \"...\"\n}\nFor requester_timezone_hint, normalize to a standard abbreviation (EST, PST, CST, MST, GMT, CET, IST, JST, etc.) even if the email uses a full name like \"Eastern time\" or \"Pacific\". If no timezone is mentioned, return null."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        432,
+        -144
+      ],
+      "id": "7d337cbd-a9a0-4872-b454-eb32f9ef155c",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "NvPAr1pnRiUu6HeI",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Gemini's raw JSON-string output\nconst raw = $input.first().json.content.parts[0].text;\nconst data = JSON.parse(raw);\n\n// --- YOUR timezone (Marvin) — set this once, hardcoded ---\nconst MY_UTC_OFFSET = 8;\n\n// Named timezone abbreviations -> UTC offset (add more as needed)\nconst NAMED_ZONE_OFFSETS = {\n  'EST': -5, 'EDT': -4, 'EASTERN': -5, 'EASTERN TIME': -5,\n  'CST': -6, 'CDT': -5, 'CENTRAL': -6, 'CENTRAL TIME': -6,\n  'MST': -7, 'MDT': -6, 'MOUNTAIN': -7, 'MOUNTAIN TIME': -7,\n  'PST': -8, 'PDT': -7, 'PACIFIC': -8, 'PACIFIC TIME': -8,\n  'GMT': 0, 'UTC': 0,\n  'CET': 1, 'CEST': 2,\n  'IST': 5.5,\n  'JST': 9,\n  'AEST': 10\n};\n\nconst hint = (data.requester_timezone_hint || '').trim().toUpperCase();\nlet theirUtcOffset;\nlet zoneWasRecognized = false;\n\nif (NAMED_ZONE_OFFSETS.hasOwnProperty(hint)) {\n  theirUtcOffset = NAMED_ZONE_OFFSETS[hint];\n  zoneWasRecognized = true;\n} else {\n  const offsetMatch = hint.match(/GMT([+-]\\d+)/i);\n  if (offsetMatch) {\n    theirUtcOffset = parseInt(offsetMatch[1]);\n    zoneWasRecognized = true;\n  } else {\n    theirUtcOffset = MY_UTC_OFFSET;\n  }\n}\n\nconst theirOffsetStr = `UTC${theirUtcOffset >= 0 ? '+' : ''}${theirUtcOffset}`;\nconst theirStart = DateTime.fromISO(`${data.resolved_date}T${data.start_time}:00`, { zone: theirOffsetStr });\nconst theirEnd = DateTime.fromISO(`${data.resolved_date}T${data.end_time}:00`, { zone: theirOffsetStr });\n\nconst myOffsetStr = `UTC${MY_UTC_OFFSET >= 0 ? '+' : ''}${MY_UTC_OFFSET}`;\nconst myStart = theirStart.setZone(myOffsetStr);\nconst myEnd = theirEnd.setZone(myOffsetStr);\n\n// --- Separate business-hour windows for each side ---\nconst MY_BUSINESS_START = 20; // 8pm (your night shift)\nconst MY_BUSINESS_END = 6;    // 6am next day\n\nconst THEIR_BUSINESS_START = 8;  // 8am — normal client day\nconst THEIR_BUSINESS_END = 20;   // 8pm\n\nfunction isWithinOvernightHours(hour, start, end) {\n  if (start > end) {\n    // wraps past midnight (like yours)\n    return hour >= start || hour < end;\n  }\n  // normal same-day range (like theirs)\n  return hour >= start && hour < end;\n}\n\nconst theirHoursOk = isWithinOvernightHours(theirStart.hour, THEIR_BUSINESS_START, THEIR_BUSINESS_END)\n                   && isWithinOvernightHours(theirEnd.hour, THEIR_BUSINESS_START, THEIR_BUSINESS_END);\nconst myHoursOk = isWithinOvernightHours(myStart.hour, MY_BUSINESS_START, MY_BUSINESS_END)\n                && isWithinOvernightHours(myEnd.hour, MY_BUSINESS_START, MY_BUSINESS_END);\n\nconst withinHours = theirHoursOk && myHoursOk;\n\nreturn {\n  json: {\n    ...data,\n    message_id: $('Gmail Trigger').item.json.id,\n    timezone_was_missing: !zoneWasRecognized,\n    their_start_local: theirStart.toISO(),\n    their_end_local: theirEnd.toISO(),\n    my_start_local: myStart.toISO(),\n    my_end_local: myEnd.toISO(),\n    their_hours_ok: theirHoursOk,\n    my_hours_ok: myHoursOk,\n    within_business_hours: withinHours,\n    needs_review: !withinHours || !zoneWasRecognized\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        0
+      ],
+      "id": "917430b4-168b-4ea8-b472-0ab91ede9a5a",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "76c4faae-333e-4807-9f8e-d281039547af",
+              "leftValue": "={{ $json.needs_review }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "ignoreCase": false
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        400,
+        352
+      ],
+      "id": "118e94db-7c15-4f5c-b772-d68621c0a703",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "aa3826260826bda3170e9b525ad35973aee98610898ba3ced0ec95bf437df814@group.calendar.google.com",
+          "mode": "list",
+          "cachedResultName": "n8n"
+        },
+        "start": "={{ $json.my_start_local }}",
+        "end": "={{ $json.my_end_local }}",
+        "additionalFields": {
+          "attendees": [
+            "= {{ $json.requester_email }}"
+          ],
+          "color": "6",
+          "description": "=Auto-booked via n8n.\nRequester: {{ $json.requester_email }}\nProposed timezone: {{ $json.requester_timezone_hint }}\nTheir local time: {{ $json.their_start_local }} – {{ $json.their_end_local }}",
+          "summary": "=Meeting with {{ $json.requester_email }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        624,
+        432
+      ],
+      "id": "1491ec23-6ede-49f3-adcc-fb5164305c65",
+      "name": "Create an event",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "daYJ9jJhOTcshVKS",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst MY_UTC_OFFSET = 8;\nconst myOffsetStr = `UTC+${MY_UTC_OFFSET}`;\n\nconst NAMED_ZONE_OFFSETS = {\n  'EST': -5, 'EDT': -4,\n  'CST': -6, 'CDT': -5,\n  'MST': -7, 'MDT': -6,\n  'PST': -8, 'PDT': -7,\n  'GMT': 0, 'UTC': 0,\n  'CET': 1, 'CEST': 2,\n  'IST': 5.5,\n  'JST': 9,\n  'AEST': 10\n};\n\nconst hint = (data.requester_timezone_hint || '').trim().toUpperCase();\nconst theirUtcOffset = NAMED_ZONE_OFFSETS.hasOwnProperty(hint) ? NAMED_ZONE_OFFSETS[hint] : MY_UTC_OFFSET;\nconst theirOffsetStr = `UTC${theirUtcOffset >= 0 ? '+' : ''}${theirUtcOffset}`;\n\n// Base off the originally resolved date, then offer that day + next 2 days\nconst baseDate = DateTime.fromISO(data.resolved_date, { zone: myOffsetStr });\nconst candidateHours = [21, 23, 2] \n\nconst slots = candidateHours.map((hour, i) => {\n  const myStart = baseDate.plus({ days: i }).set({ hour, minute: 0, second: 0 });\n  const myEnd = myStart.plus({ hours: 1 });\n  const theirStart = myStart.setZone(theirOffsetStr);\n  const theirEnd = myEnd.setZone(theirOffsetStr);\n  return {\n    my_start_iso: myStart.toISO(),\n    my_end_iso: myEnd.toISO(),\n    their_display: `${theirStart.toFormat('cccc, MMM d')} — ${theirStart.toFormat('h:mm a')} to ${theirEnd.toFormat('h:mm a')} (${data.requester_timezone_hint})`\n  };\n});\n\nconst slotListText = slots.map((s, i) => `${i + 1}. ${s.their_display}`).join('\\n');\n\nreturn {\n  json: {\n    ...data,\n    alt_slots: slots,\n    slot_list_text: slotListText\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        256
+      ],
+      "id": "a779b285-4a63-4ce1-a6f0-4d367de51d9d",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $json.message_id }}",
+        "message": "=Hi,  That exact time doesn't quite work on my end — but here are a few slots that should work well for both of us:  {{ $json.slot_list_text }}  Just reply with the number that works best, and I'll get it locked in.  Best, Marvin",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        848,
+        256
+      ],
+      "id": "008c07b1-b415-40aa-a75d-3f667fe9f3ff",
+      "name": "Reply to a message",
+      "webhookId": "65e93203-99ea-45d1-978a-b91af3ed7e02",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create an event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Reply to a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "T3p9ThEeOvll1wzk",
+      "projectId": "268xtrXs54BYUBJ0",
+      "createdAt": "2026-09-13T13:19:46.343Z",
+      "updatedAt": "2026-09-13T13:19:46.343Z"
+    }
+  ],
+  "activeVersion": null
+}
