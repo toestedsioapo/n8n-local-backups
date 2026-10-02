@@ -1,0 +1,179 @@
+{
+  "id": "xYZy6n5aPR5T46hx",
+  "name": "Travel: Consolidated Itinerary",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-28T01:06:12.888Z",
+  "updatedAt": "2026-09-28T01:10:31.589Z",
+  "isArchived": false,
+  "versionId": "311cb152-b506-4194-9938-f56b6dcf5a1e",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Travel: Consolidated Itinerary (2 of 2)\n\n**Flow:** Schedule Trigger (daily) → Google Sheets: Read Rows → Group & Build Itinerary → Slack.\n\nThis is the SCHEDULED half — it reads every row from the same Sheet that \"Travel: Log Booking\" writes to, groups rows by tripTag, keeps only trips whose latest leg hasn't fully passed yet, sorts each trip's legs chronologically, and posts one consolidated Slack message covering every currently-upcoming trip.\n\n**Read-only and side-effect-free** — this workflow never writes anything back to the Sheet or creates duplicate entries, so it's safe to run as often as you like.\n\n**Known limitation:** each leg's time is displayed exactly as extracted (its own local time) rather than converted to one shared timezone — a Tokyo arrival time and a Manila departure time are each shown as their own local clock time, not converted into each other. This avoids a worse bug (silently shifting times by the wrong offset), at the cost of not showing \"how many hours apart\" two legs' times really are.\n\n**Before activating:**\n1. Credentials: Google Sheets, Slack.\n2. `Google Sheets: Read Rows`: point at the EXACT same spreadsheet + sheet as \"Travel: Log Booking\" uses. This is a Get Row(s)-style read operation — the exact field name may need reselecting after import.\n3. `Slack: Send Itinerary`: confirm channel (can be the same channel as the logging workflow, or a separate one just for itinerary digests).\n4. Schedule Trigger defaults to 7am daily (Asia/Manila) — adjust as you like; running daily is harmless since this workflow only reads and never writes.\n\n**IMPORTANT when reimporting after any future fix:** select all nodes (Ctrl+A) and delete them BEFORE importing, or n8n will auto-rename nodes with a trailing \"1\" and break every cross-node reference.",
+        "height": 784,
+        "width": 680
+      },
+      "id": "42769962-0377-4f82-b404-a047fd063ff1",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "ef9affb5-83de-4945-b11e-6e0de9bbc40f",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        352,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "127sC8hAhPEL17Q667zSPtgVdth0ngdNTMO3RtyFl2T4",
+          "mode": "list",
+          "cachedResultName": "Travel: Log Booking",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/127sC8hAhPEL17Q667zSPtgVdth0ngdNTMO3RtyFl2T4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/127sC8hAhPEL17Q667zSPtgVdth0ngdNTMO3RtyFl2T4/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "b5a410d7-4ec3-4479-8043-a9131ffe43c0",
+      "name": "Google Sheets: Read Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        592,
+        608
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "AzGdAoskOF8IAqUb",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\n// Run mode for this node: \"Run Once for All Items\" (n8n default for Code nodes).\n// NOTE: there's no single TZ setting here on purpose — each leg's time is displayed\n// exactly as extracted (its own local time), not converted into one fixed timezone.\n// A Tokyo arrival and a Cebu departure are shown in their own local times as-is.\nconst MAX_ROWS_PER_TRIP = 20;\nconst TYPE_ICON = { flight: '✈️', hotel: '🏨', car: '🚗', train: '🚆', other: '📌' };\n// ----------------------------\n\nconst esc = (s = '') => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst trunc = (s = '', n = 100) => (s.length > n ? s.slice(0, n - 1) + '…' : s);\n\n// Parses \"YYYY-MM-DD\" or \"YYYY-MM-DDTHH:mm\" as pure wall-clock components, returned as a\n// UTC-labeled timestamp. This deliberately avoids letting the JS runtime reinterpret a\n// naive (no-offset) datetime string as ITS OWN local time — which would silently shift\n// every displayed time depending on whatever timezone the server happens to run in.\n// NOTE: this treats each leg's time as \"whatever local time the booking stated\" — it does\n// NOT know which real-world timezone that is (a Tokyo arrival time vs. a Cebu departure\n// time are different real zones), so cross-leg time-of-day comparisons are approximate.\nconst parseNaiveMs = (s) => {\n  const m = String(s).match(/^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2}))?/);\n  if (!m) return NaN;\n  const [, y, mo, d, h, mi] = m;\n  return Date.UTC(+y, +mo - 1, +d, +(h || 0), +(mi || 0));\n};\n\nconst rows = $input.all()\n  .map(i => i.json)\n  .filter(r => r && r.status === 'logged' && r.startDateTime && r.tripTag && r.tripTag !== '(unassigned trip)');\n\nconst now = Date.now();\n\n// Group by trip\nconst trips = new Map();\nfor (const r of rows) {\n  if (!trips.has(r.tripTag)) trips.set(r.tripTag, []);\n  trips.get(r.tripTag).push(r);\n}\n\n// Keep only trips that haven't fully finished yet (their LATEST leg is still upcoming or today)\nconst upcoming = [];\nfor (const [tripTag, legs] of trips.entries()) {\n  legs.sort((a, b) => parseNaiveMs(a.startDateTime) - parseNaiveMs(b.startDateTime));\n  const latestStart = parseNaiveMs(legs[legs.length - 1].startDateTime);\n  if (latestStart >= now - 24 * 3600 * 1000) {   // small grace window for \"today\"\n    upcoming.push({ tripTag, legs, earliestStart: parseNaiveMs(legs[0].startDateTime) });\n  }\n}\nupcoming.sort((a, b) => a.earliestStart - b.earliestStart);\n\nconst fmtWhen = (iso, hasTimeGuess) => {\n  const ms = parseNaiveMs(iso);\n  if (isNaN(ms)) return iso;\n  const d = new Date(ms);\n  // Always display in UTC here — since the timestamp was built via Date.UTC from the\n  // extracted wall-clock numbers, formatting in UTC echoes those exact numbers back\n  // unchanged, regardless of what timezone this code actually runs in.\n  const opts = hasTimeGuess\n    ? { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }\n    : { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' };\n  return new Intl.DateTimeFormat('en-US', opts).format(d);\n};\n\nconst dateLabel = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date());\n\nif (upcoming.length === 0) {\n  return [{\n    json: {\n      text: 'No upcoming trips on file.',\n      blocks: [\n        { type: 'header', text: { type: 'plain_text', text: `🧳 Travel itinerary — ${dateLabel}` } },\n        { type: 'section', text: { type: 'mrkdwn', text: 'No upcoming trips currently logged.' } },\n      ],\n    },\n  }];\n}\n\nconst blocks = [\n  { type: 'header', text: { type: 'plain_text', text: `🧳 Travel itinerary — ${dateLabel}` } },\n  { type: 'context', elements: [{ type: 'mrkdwn', text: `${upcoming.length} upcoming trip${upcoming.length > 1 ? 's' : ''} on file` }] },\n];\n\nfor (const trip of upcoming) {\n  blocks.push({ type: 'divider' });\n  const legs = trip.legs.slice(0, MAX_ROWS_PER_TRIP);\n  const lines = legs.map(r => {\n    const icon = TYPE_ICON[r.type] || '📌';\n    const when = fmtWhen(r.startDateTime, r.startHasTime);\n    const conf = r.confirmationNumber ? `  _(conf: ${esc(r.confirmationNumber)})_` : '';\n    return `${icon} *${when}* — ${esc(trunc(r.summaryLine, 90))}${conf}`;\n  });\n  if (trip.legs.length > legs.length) lines.push(`_…and ${trip.legs.length - legs.length} more legs_`);\n  blocks.push({\n    type: 'section',\n    text: { type: 'mrkdwn', text: `*${esc(trip.tripTag)}* (${trip.legs.length} legs)\\n${lines.join('\\n')}` },\n  });\n}\n\nconst text = `Travel itinerary: ${upcoming.length} upcoming trip(s)`;\n\nreturn [{ json: { text, blocks: blocks.slice(0, 50) } }];\n"
+      },
+      "id": "b404df06-eb0c-4176-8fd0-8ba8f69f50c8",
+      "name": "Group & Build Itinerary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0C5KP4J7K2",
+          "mode": "id"
+        },
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify({ blocks: $json.blocks }) }}",
+        "text": "={{ $json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "73982758-4a41-4ca9-8c86-cafd10c6e324",
+      "name": "Slack: Send Itinerary",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1072,
+        608
+      ],
+      "webhookId": "7b714be0-012e-4d80-9123-72915832025f",
+      "credentials": {
+        "slackApi": {
+          "id": "lwPRukz1Q0g9OTNU",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets: Read Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets: Read Rows": {
+      "main": [
+        [
+          {
+            "node": "Group & Build Itinerary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group & Build Itinerary": {
+      "main": [
+        [
+          {
+            "node": "Slack: Send Itinerary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "xYZy6n5aPR5T46hx",
+      "projectId": "268xtrXs54BYUBJ0",
+      "createdAt": "2026-09-28T01:06:12.890Z",
+      "updatedAt": "2026-09-28T01:06:12.890Z"
+    }
+  ],
+  "activeVersion": null
+}
