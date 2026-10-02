@@ -1,0 +1,353 @@
+{
+  "id": "9P1iGgjJZygAwAxN",
+  "name": "Inbox Triage & Daily Briefing",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-21T12:39:19.873Z",
+  "updatedAt": "2026-09-27T08:14:11.816Z",
+  "isArchived": false,
+  "versionId": "84ade974-05c1-455d-adaa-5de831d602a9",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3.6-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3.6-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "maxOutputTokens": 8192
+        }
+      },
+      "id": "eb088389-d153-46dd-bda5-c5e3090fffd9",
+      "name": "Gemini: Categorize",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        3584,
+        -1072
+      ],
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "NvPAr1pnRiUu6HeI",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Inbox Triage & Daily Briefing\n\n**Flow:** Gmail → Prep Emails → Gemini (primary) → on error → Gemini (fallback model) → Build Digest → Slack.\n\n**Check before activating:**\n1. Credentials: Gmail OAuth2, Google Gemini (PaLM) API, Slack.\n2. `Prep Emails`: set MY_EMAIL, EXEC_NAME, VIP_SENDERS.\n3. `Slack: Send Digest`: confirm channel.\n4. The two Gemini nodes must use DIFFERENT models so an overload on one is covered by the other.\n5. Schedule Trigger: set the time you want the digest waiting.\n\nLookback (12h) lives in the Gmail search expression AND `LOOKBACK_HOURS` in `Build Digest`. Change both together.\nIf categorization fails, the Slack warning now shows the reason.",
+        "height": 428,
+        "width": 520
+      },
+      "id": "f324da99-23e6-4d49-b35c-6b9f0a6cbb59",
+      "name": "Setup Notes1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2672,
+        -1280
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $('Prep Emails').first().json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "maxOutputTokens": 8192
+        }
+      },
+      "id": "b77fe86e-ab74-4fe8-b691-bfb11ba44795",
+      "name": "Gemini: Fallback",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        3616,
+        -848
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "NvPAr1pnRiUu6HeI",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 20 * * *"
+            }
+          ]
+        }
+      },
+      "id": "8dafac7e-4f6c-43dc-a735-b14bda8522ac",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        2672,
+        -720
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 100,
+        "filters": {
+          "q": "={{ 'in:inbox -from:me after:' + Math.floor(($now.toMillis() - 12 * 3600 * 1000) / 1000) }}"
+        }
+      },
+      "id": "aa3b80dc-8da8-41d2-800b-f83d446674ec",
+      "name": "Gmail: Get Overnight Emails",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2880,
+        -720
+      ],
+      "alwaysOutputData": true,
+      "webhookId": "ed97f124-0728-450b-a6d0-964b80a4c254",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst MY_EMAIL = 'liemormarvin@example.com';          // skip anything sent from you\nconst EXEC_NAME = 'Marvin';           // used in the prompt\nconst VIP_SENDERS = ['CEO'];                      // e.g. ['ceo@client.com', 'board@']\nconst URGENT_HINTS = ['urgent', 'asap', 'deadline', 'today', 'EOD', 'immediately', 'invoice overdue'];\nconst MAX_EMAILS = 60;\nconst SNIPPET_CHARS = 500;\n// ----------------------------\n\nconst header = (j, name) => {\n  if (j[name] !== undefined) return j[name];                                   // Simplify ON (From / Subject)\n  if (j.headers && (j.headers[name] ?? j.headers[name.toLowerCase()]) !== undefined) {\n    return j.headers[name] ?? j.headers[name.toLowerCase()];\n  }\n  const h = j.payload?.headers?.find(h => h.name?.toLowerCase() === name.toLowerCase()); // Simplify OFF\n  return h?.value ?? '';\n};\n\nconst parseSender = (from = '') => {\n  const m = from.match(/^\\s*\"?([^\"<]*?)\"?\\s*<([^>]+)>\\s*$/);\n  return m\n    ? { name: m[1].trim() || m[2], email: m[2].trim().toLowerCase() }\n    : { name: from.trim(), email: from.trim().toLowerCase() };\n};\n\nconst clean = (s = '') =>\n  String(s)\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/https?:\\/\\/\\S+/g, '[link]')\n    .replace(/\\s+/g, ' ')\n    .trim();\n\n// Normalize + drop empties / own mail\nlet emails = $input.all()\n  .map(item => item.json)\n  .filter(j => j && j.id)\n  .map(j => {\n    const from = parseSender(header(j, 'From'));\n    return {\n      id: j.id,\n      threadId: j.threadId || j.id,\n      subject: String(header(j, 'Subject')).replace(/\\s+/g, ' ').trim() || '(no subject)',\n      fromName: from.name,\n      fromEmail: from.email,\n      snippet: clean(j.text || j.snippet || '').slice(0, SNIPPET_CHARS),\n      receivedAt: j.internalDate ? Number(j.internalDate) : Date.parse(header(j, 'Date')) || 0,\n      isVip: VIP_SENDERS.some(v => `${from.name} ${from.email}`.toLowerCase().includes(v.toLowerCase())),\n    };\n  })\n  .filter(e => !e.fromEmail.includes(MY_EMAIL.toLowerCase()));\n\n// One entry per thread (keep newest), newest first\nconst byThread = new Map();\nfor (const e of emails) {\n  const prev = byThread.get(e.threadId);\n  if (!prev || e.receivedAt > prev.receivedAt) byThread.set(e.threadId, e);\n}\nemails = [...byThread.values()]\n  .sort((a, b) => b.receivedAt - a.receivedAt)\n  .slice(0, MAX_EMAILS)\n  .map((e, i) => ({ ...e, ref: `e${i + 1}` }));\n\nif (emails.length === 0) {\n  return [{ json: { total: 0, prompt: '', emails: [] } }];\n}\n\nconst emailBlock = emails.map(e =>\n  JSON.stringify({\n    ref: e.ref,\n    from: `${e.fromName} <${e.fromEmail}>`,\n    vip: e.isVip,\n    subject: e.subject,\n    preview: e.snippet,\n  })\n).join('\\n');\n\nconst prompt = `You are an executive assistant triaging the overnight inbox for ${EXEC_NAME}.\nClassify EVERY email below into exactly one category:\n\n- \"urgent\": time-sensitive, has a deadline within ~24h, comes from a VIP, or something breaks/costs money if ignored. Hint words: ${URGENT_HINTS.join(', ')}.\n- \"needs_reply\": a real person expects an answer or decision, but it is not time-critical.\n- \"fyi\": informational only (receipts, confirmations, status updates, newsletters worth a glance). No action needed.\n- \"spam\": cold outreach, marketing, promotions, or low-value noise.\n\nFor each email return:\n- \"ref\": the ref exactly as given\n- \"category\": one of urgent | needs_reply | fyi | spam\n- \"priority\": integer 1-5 (5 = most important), used for sorting within a category\n- \"summary\": one plain sentence, max 20 words, saying what the email actually says\n- \"action\": for urgent/needs_reply, the concrete next step in max 10 words. Otherwise \"\".\n\nRules:\n- Return ONLY a JSON array with one object per email. No markdown, no commentary.\n- Do not invent details that are not in the email.\n- When unsure between two categories, choose the more important one.\n\nEMAILS (one JSON object per line):\n${emailBlock}`;\n\nreturn [{ json: { total: emails.length, prompt, emails } }];\n"
+      },
+      "id": "5a08d3ee-39be-44e8-9cbd-b1e692c693ff",
+      "name": "Prep Emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -720
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a54e8701-d518-4591-b82d-af5c5e85444e",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c70da648-edd9-45c0-8640-3ad264715b41",
+      "name": "Any Emails?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3328,
+        -720
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst TZ = 'Asia/Manila';\nconst LOOKBACK_HOURS = 12;   // keep in sync with the Gmail search expression\nconst MAX_FYI_SHOWN = 15;\nconst MAX_SPAM_TITLES = 8;\n// ----------------------------\n\nconst prep = $('Prep Emails').first().json;\n\nconst esc = (s = '') => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst linkText = (s = '') => esc(s).replace(/\\|/g, '/');\nconst gmailUrl = (e) => `https://mail.google.com/mail/u/0/#inbox/${e.threadId}`;\nconst trunc = (s = '', n = 90) => (s.length > n ? s.slice(0, n - 1) + '…' : s);\n\nconst dateLabel = new Intl.DateTimeFormat('en-US', {\n  timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric',\n}).format(new Date());\n\n// ---- Empty inbox path ----\nif (!prep.total) {\n  const text = `☀️ Inbox briefing — ${dateLabel}: nothing new in the last ${LOOKBACK_HOURS}h. Inbox is clear. ✅`;\n  return [{ json: { text, blocks: [{ type: 'section', text: { type: 'mrkdwn', text } }] } }];\n}\n\n// ---- Parse Gemini output ----\nconst raw = $input.first().json;\n\nconst partText = (p) => (typeof p?.text === 'string' ? p.text : JSON.stringify(p?.text ?? ''));\nconst rawText =\n  raw?.content?.parts?.map(partText).join('') ??\n  raw?.candidates?.[0]?.content?.parts?.map(partText).join('') ??\n  raw?.text ?? raw?.output ??\n  (typeof raw === 'string' ? raw : JSON.stringify(raw));\n\nlet results = [];\nlet parseFailed = false;\nlet failReason = '';\ntry {\n  if (raw?.error) {\n    throw new Error(typeof raw.error === 'string' ? raw.error : (raw.error.message || JSON.stringify(raw.error)));\n  }\n  const stripped = String(rawText).replace(/```json|```/gi, '').trim();\n  const start = stripped.indexOf('[');\n  const end = stripped.lastIndexOf(']');\n  results = JSON.parse(stripped.slice(start, end + 1));\n  if (!Array.isArray(results)) throw new Error('not an array');\n} catch (err) {\n  parseFailed = true;\n  failReason = String(err.message || err).slice(0, 160);\n}\n\nconst byRef = new Map(results.map(r => [String(r.ref), r]));\nconst VALID = ['urgent', 'needs_reply', 'fyi', 'spam'];\n\n// ---- Merge AI results back onto the real emails ----\nconst items = prep.emails.map(e => {\n  const r = byRef.get(e.ref);\n  const category = r && VALID.includes(r.category) ? r.category : 'needs_reply'; // fail safe: surface it\n  return {\n    ...e,\n    category,\n    priority: Number(r?.priority) || 3,\n    summary: r?.summary || e.snippet.slice(0, 120) || '(no preview)',\n    action: r?.action || '',\n    unclassified: !r,\n  };\n});\n\nconst bucket = (cat) =>\n  items\n    .filter(i => i.category === cat)\n    .sort((a, b) => b.priority - a.priority || b.receivedAt - a.receivedAt);\n\nconst urgent = bucket('urgent');\nconst needsReply = bucket('needs_reply');\nconst fyi = bucket('fyi');\nconst spam = bucket('spam');\n\n// ---- Slack formatting helpers ----\nconst line = (i) => {\n  const vip = i.isVip ? ' ⭐' : '';\n  const head = `• <${gmailUrl(i)}|*${linkText(trunc(i.subject, 80))}*> — ${esc(trunc(i.fromName, 40))}${vip}`;\n  const body = `\\n      _${esc(i.summary)}_`;\n  const act = i.action ? ` → *${esc(i.action)}*` : '';\n  return head + body + act;\n};\n\nconst sectionBlocks = (title, arr, cap = Infinity) => {\n  if (!arr.length) return [];\n  const shown = arr.slice(0, cap);\n  const lines = shown.map(line);\n  if (arr.length > shown.length) lines.push(`_…and ${arr.length - shown.length} more_`);\n\n  // Slack section text limit is 3000 chars → chunk it\n  const chunks = [];\n  let cur = '';\n  for (const l of lines) {\n    if ((cur + '\\n' + l).length > 2800) { chunks.push(cur); cur = l; }\n    else cur = cur ? cur + '\\n' + l : l;\n  }\n  if (cur) chunks.push(cur);\n\n  return chunks.map((c, idx) => ({\n    type: 'section',\n    text: { type: 'mrkdwn', text: idx === 0 ? `*${title} (${arr.length})*\\n${c}` : c },\n  }));\n};\n\n// ---- Assemble blocks ----\nconst blocks = [\n  { type: 'header', text: { type: 'plain_text', text: `☀️ Inbox briefing — ${dateLabel}` } },\n  {\n    type: 'context',\n    elements: [{\n      type: 'mrkdwn',\n      text: `${items.length} threads in the last ${LOOKBACK_HOURS}h  •  🔴 ${urgent.length} urgent  •  🟡 ${needsReply.length} need reply  •  🔵 ${fyi.length} FYI  •  🗑️ ${spam.length} spam-ish`,\n    }],\n  },\n  { type: 'divider' },\n];\n\nif (parseFailed) {\n  blocks.push({\n    type: 'section',\n    text: { type: 'mrkdwn', text: `⚠️ _AI categorization failed (${esc(failReason)}) — everything below is listed as \"needs reply\"._` },\n  });\n}\n\nblocks.push(...sectionBlocks('🔴 Urgent', urgent));\nif (urgent.length) blocks.push({ type: 'divider' });\n\nblocks.push(...sectionBlocks('🟡 Needs reply', needsReply));\nif (needsReply.length) blocks.push({ type: 'divider' });\n\nblocks.push(...sectionBlocks('🔵 FYI', fyi, MAX_FYI_SHOWN));\n\nif (spam.length) {\n  const titles = spam.slice(0, MAX_SPAM_TITLES).map(s => esc(trunc(s.subject, 40))).join(' · ');\n  const more = spam.length > MAX_SPAM_TITLES ? ` · +${spam.length - MAX_SPAM_TITLES} more` : '';\n  blocks.push({ type: 'divider' });\n  blocks.push({\n    type: 'context',\n    elements: [{ type: 'mrkdwn', text: `🗑️ *Spam-ish (${spam.length}):* ${titles}${more}` }],\n  });\n}\n\n// Slack hard cap is 50 blocks\nconst finalBlocks = blocks.slice(0, 50);\n\nconst text = `Inbox briefing ${dateLabel}: ${urgent.length} urgent, ${needsReply.length} need reply, ${fyi.length} FYI, ${spam.length} spam-ish`;\n\nreturn [{ json: { text, blocks: finalBlocks } }];\n"
+      },
+      "id": "d3608398-6df2-4818-83ff-35542c69f8e2",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4064,
+        -704
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0C0WJZV5FW",
+          "mode": "id"
+        },
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify({ blocks: $json.blocks }) }}",
+        "text": "={{ $json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "c370eb01-d790-41a7-b83e-6ea57015a03c",
+      "name": "Slack: Send Digest",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        4272,
+        -704
+      ],
+      "webhookId": "170d0035-778f-4ff2-850b-3d01fca0a2a8",
+      "credentials": {
+        "slackApi": {
+          "id": "lwPRukz1Q0g9OTNU",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gemini: Categorize": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gemini: Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: Fallback": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Get Overnight Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Get Overnight Emails": {
+      "main": [
+        [
+          {
+            "node": "Prep Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Emails": {
+      "main": [
+        [
+          {
+            "node": "Any Emails?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Emails?": {
+      "main": [
+        [
+          {
+            "node": "Gemini: Categorize",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Slack: Send Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "9P1iGgjJZygAwAxN",
+      "projectId": "268xtrXs54BYUBJ0",
+      "createdAt": "2026-09-21T12:39:19.877Z",
+      "updatedAt": "2026-09-21T12:39:19.877Z"
+    }
+  ],
+  "activeVersion": null
+}
