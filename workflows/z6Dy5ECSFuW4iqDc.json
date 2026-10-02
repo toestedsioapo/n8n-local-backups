@@ -1,0 +1,627 @@
+{
+  "id": "z6Dy5ECSFuW4iqDc",
+  "name": "n8n Basics",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-13T06:58:39.104Z",
+  "updatedAt": "2026-09-27T08:07:41.000Z",
+  "isArchived": true,
+  "versionId": "423d266f-c87a-4d77-a677-3f03d38bef64",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ... now let's schedule it ⏰\n\n1. Double-click “Schedule” to set when it runs\n\n2. Connect your Gmail and set the recepient\n\n3. To test, click “Execute workflow” on \nthe \"Schedule\" node",
+        "height": 208,
+        "width": 1072,
+        "color": 7
+      },
+      "id": "a1e80c31-a57b-4b12-8c53-c12e0e0650b6",
+      "name": "Sticky Note3",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        912,
+        752
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 208,
+        "width": 230,
+        "color": 3
+      },
+      "id": "cea73abf-1e17-409d-bdf9-fc7eb5537d22",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1968,
+        752
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "id": "bfee7b8d-d760-40fc-979c-a239aa3d9e8a",
+      "name": "Schedule me here",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        1344,
+        784
+      ],
+      "notesInFlow": true,
+      "typeVersion": 1.2,
+      "notes": "Double-click to set!"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fa43a283-e401-46e3-bf3c-9cc7fb7dae2f",
+              "name": "quote",
+              "type": "string",
+              "value": "={{ $json.q }}"
+            },
+            {
+              "id": "c16964d2-b6a6-40d4-a4d2-bef0760d0d26",
+              "name": "author",
+              "type": "string",
+              "value": "={{ $json.a }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "34a5a0dd-1403-4459-a6d0-e24ac096e6d4",
+      "name": "Results",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        1808,
+        784
+      ],
+      "notesInFlow": true,
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "url": "https://zenquotes.io/api/random",
+        "options": {}
+      },
+      "id": "07f5bf55-22d6-4695-b5f9-22a7a9644c78",
+      "name": "Get quote",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1568,
+        784
+      ],
+      "notesInFlow": true,
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "sendTo": "ijisantos24@gmail.com",
+        "subject": "Daily quote",
+        "emailType": "text",
+        "message": "=Hey,\n\nHere's a quote by {{ $json.author }}:\n\n\"{{ $json.quote }}\"",
+        "options": {}
+      },
+      "id": "dfbf4671-64d3-4b0f-aa4c-b31243b177c5",
+      "name": "Connect your Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        2032,
+        784
+      ],
+      "webhookId": "83a06a0c-4824-44ea-b593-18917e1b3fe4",
+      "notesInFlow": true,
+      "typeVersion": 2.1,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      },
+      "notes": "Double-click here to connect!"
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 208,
+        "width": 198,
+        "color": 3
+      },
+      "id": "3be69963-501a-4eda-8dff-c64dd9b09c37",
+      "name": "Sticky Note15",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1296,
+        752
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 🚀🚀 Start here 🚀🚀\n\n1. Click “Execute workflow” to run it\n\n2. This gets a random quote from the internet\n\n3. Double-click the last node to check what\nquote you got\n",
+        "height": 208,
+        "width": 1088,
+        "color": 7
+      },
+      "id": "4162ff35-0f6a-4450-a886-ad6c4f37f731",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        896,
+        128
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {},
+      "id": "a96323a8-32f0-44c1-8823-74dbeaf5875a",
+      "name": "1. Click 'Execute workflow’",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [
+        1328,
+        160
+      ],
+      "notesInFlow": false,
+      "typeVersion": 1,
+      "notes": "\n"
+    },
+    {
+      "parameters": {
+        "url": "https://zenquotes.io/api/random",
+        "options": {}
+      },
+      "id": "8c06d505-4e7d-4486-934a-db927c337075",
+      "name": "2. Get inspirational quote from the internet",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1552,
+        160
+      ],
+      "notesInFlow": true,
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fa43a283-e401-46e3-bf3c-9cc7fb7dae2f",
+              "name": "quote",
+              "type": "string",
+              "value": "={{ $json.q }}"
+            },
+            {
+              "id": "c16964d2-b6a6-40d4-a4d2-bef0760d0d26",
+              "name": "author",
+              "type": "string",
+              "value": "={{ $json.a }}"
+            },
+            {
+              "id": "59c3ddbd-8357-4057-9c48-107270e9afbe",
+              "name": "h",
+              "value": "={{ $json.h }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3460f6e8-2795-413c-b60a-8dbe5149d7fd",
+      "name": "3. See the resutls",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        1792,
+        160
+      ],
+      "notesInFlow": true,
+      "typeVersion": 3.4,
+      "notes": "Double-click to open!"
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 208,
+        "width": 198,
+        "color": 3
+      },
+      "id": "408245c5-70bc-41ce-acbf-422711519861",
+      "name": "Sticky Note6",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1280,
+        128
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## ❓ How about a joke...\n\n1. Execute this workflow\n\n2. Check out the new \"Programming Joke\"\n\n3. Try mapping the new results and add them to\nyour email",
+        "height": 224,
+        "width": 1520,
+        "color": 7
+      },
+      "id": "2dc1a856-5d13-4473-ac13-ed8a5e05c29f",
+      "name": "Sticky Note4",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        928,
+        1360
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 224,
+        "width": 198,
+        "color": 3
+      },
+      "id": "a52df52d-b211-44eb-9e41-17c8f3437833",
+      "name": "Sticky Note5",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2000,
+        1360
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "url": "https://zenquotes.io/api/random",
+        "options": {}
+      },
+      "id": "ae2456b2-26ca-441c-a791-4f41943b4541",
+      "name": "Quote",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1600,
+        1408
+      ],
+      "notesInFlow": true,
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "monthsInterval": 12,
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "id": "11e2aeb5-eb4d-4ab0-916a-c225bd4c198a",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        1360,
+        1408
+      ],
+      "notesInFlow": true,
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "57322775-a00d-47f5-9424-3188ca2e46e6",
+              "name": "author",
+              "type": "string",
+              "value": "="
+            },
+            {
+              "id": "1b141196-bc29-49d9-9e10-78bf17975cee",
+              "name": "quote",
+              "type": "string",
+              "value": "="
+            },
+            {
+              "id": "b33e5122-1419-4bae-bfd5-0d5fb22a95f2",
+              "name": "joke",
+              "type": "string",
+              "value": "="
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6b806ce8-4f83-4575-9bff-0434ce348256",
+      "name": "Map the fields",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        2048,
+        1408
+      ],
+      "notesInFlow": true,
+      "typeVersion": 3.4,
+      "notes": "Double-click to set!"
+    },
+    {
+      "parameters": {
+        "url": "=https://v2.jokeapi.dev/joke/Programming?blacklistFlags=nsfw,religious,political,racist,sexist,explicit&type=single",
+        "options": {}
+      },
+      "id": "c5a89247-8871-47e9-802a-4c638a6ae727",
+      "name": "Programming joke",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1840,
+        1408
+      ],
+      "notesInFlow": true,
+      "typeVersion": 4.2,
+      "notes": "Check out after running!"
+    },
+    {
+      "parameters": {
+        "content": "@[youtube](dKTcAfBfFLU)",
+        "height": 400,
+        "width": 704,
+        "color": 7
+      },
+      "id": "4a28babd-40d2-48c2-96c8-2ca30da08bc5",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        160,
+        16
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "@[youtube](LdE0KnhRtsY)",
+        "height": 400,
+        "width": 720,
+        "color": 7
+      },
+      "id": "da6b2b81-1607-497f-a920-c742eaf80dfb",
+      "name": "Sticky Note8",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        176,
+        1264
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "@[youtube](5CBUXMO_L2Y)",
+        "height": 400,
+        "width": 720,
+        "color": 7
+      },
+      "id": "a24b26fd-508a-4d43-9ff6-d0eda4e5b176",
+      "name": "Sticky Note7",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        160,
+        640
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "# Step 1",
+        "height": 544,
+        "width": 1936,
+        "color": 5
+      },
+      "id": "1ab7076e-e165-46a8-9e66-d7bb0f528800",
+      "name": "Sticky Note9",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        112,
+        -80
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "# Step 2",
+        "height": 560,
+        "width": 2144,
+        "color": 5
+      },
+      "id": "a3d0045a-9802-4610-9cdb-bc091894c622",
+      "name": "Sticky Note10",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        112,
+        528
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "# Step 3",
+        "height": 560,
+        "width": 2400,
+        "color": 5
+      },
+      "id": "6789df0f-3ea1-4dd8-a33b-291fcb515675",
+      "name": "Sticky Note11",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        112,
+        1152
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n### Click + to add Gmail",
+        "height": 224,
+        "width": 214,
+        "color": 3
+      },
+      "id": "17e8c03b-472e-4e2b-8987-48ff22b8b396",
+      "name": "Sticky Note13",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2240,
+        1360
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "sendTo": "ijisantos24@gmail.com",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2272,
+        1408
+      ],
+      "id": "f80e7f1c-6785-4a60-a53b-0d8c6ec039ee",
+      "name": "Send a message",
+      "webhookId": "68bd555e-a6cf-4a62-9aa2-bab7930d03f7",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Quote": {
+      "main": [
+        [
+          {
+            "node": "Programming joke",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Results": {
+      "main": [
+        [
+          {
+            "node": "Connect your Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get quote": {
+      "main": [
+        [
+          {
+            "node": "Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Programming joke": {
+      "main": [
+        [
+          {
+            "node": "Map the fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule me here": {
+      "main": [
+        [
+          {
+            "node": "Get quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Click 'Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "2. Get inspirational quote from the internet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Get inspirational quote from the internet": {
+      "main": [
+        [
+          {
+            "node": "3. See the resutls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map the fields": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "z6Dy5ECSFuW4iqDc",
+      "projectId": "268xtrXs54BYUBJ0",
+      "createdAt": "2026-09-13T06:58:39.108Z",
+      "updatedAt": "2026-09-13T06:58:39.108Z"
+    }
+  ],
+  "activeVersion": null
+}
