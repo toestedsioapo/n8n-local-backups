@@ -1,0 +1,341 @@
+{
+  "id": "LiI8czSrtnEMoJm0",
+  "name": "Recurring Status Digest (Trello)",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-25T11:08:29.499Z",
+  "updatedAt": "2026-09-27T02:07:23.994Z",
+  "isArchived": false,
+  "versionId": "28ac9dac-f1cc-4ff7-b095-4252e82314ac",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Recurring Status Digest (Trello → Slack, weekly)\n\n**Flow:** Schedule Trigger (weekly) → Boards To Fetch → fans out to 3 parallel Trello calls (Get Boards, Get Lists, Get Cards) → Trello: Cards To Items → Build Digest → Slack.\n\n**v2 fix:** n8n's native Trello node has no bulk \"get all cards on a board\" operation — Card resource is single-card only. `Trello: Get Cards` is now a direct HTTP call to Trello's REST API (GET /1/boards/{id}/cards?filter=all) using the same Trello credential, and `Trello: Cards To Items` splits the single returned array into one item per card so `Build Digest` gets what it expects.\n\n**How completion is detected:** a card counts as completed if it's archived, has its due-date checkbox ticked, OR sits in a list named like \"Done\"/\"Completed\"/\"Shipped\". A card only shows in the digest if its last-activity timestamp falls in the last 7 days (approximate — Trello's card object has no exact \"moved to Done\" timestamp without a separate Actions API call).\n\n**Overdue:** open cards (not archived, checkbox unticked, not in a Done-named list) with a due date in the past. A card in Done with an old due date is NEVER double-counted as overdue — completion always wins.\n\n**Before activating:**\n1. Trello credential: create one at trello.com/power-ups/admin for an API key, then generate a token via the authorize URL it gives you.\n2. `Boards To Fetch`: replace BOARD_ID_PLACEHOLDER with your real board ID(s).\n3. `Trello: Get Boards` and `Trello: Get Lists` field names are the most likely to differ by n8n version — reselect from the dropdown if a field looks empty or red after import.\n4. `Build Digest`: adjust DONE_LIST_NAMES to match your board's actual list names, WINDOW_DAYS for a different lookback.\n5. `Slack: Send Digest`: confirm the channel.\n6. Schedule Trigger defaults to Monday 8am (Asia/Manila).",
+        "height": 800,
+        "width": 700
+      },
+      "id": "12dd3f5f-7dd4-49a3-a635-c4bf7009a219",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5648,
+        2736
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "34e7e834-53fd-4d9e-b9fa-00f4839b1954",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        6032,
+        3696
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\n// Find a board's ID by opening it in Trello, clicking the \"...\" menu -> \"More\" ->\n// \"Print, export, and share\" -> \"Export JSON\", or just from the URL after visiting\n// https://trello.com/1/members/me/boards?key=YOUR_KEY&token=YOUR_TOKEN\nconst BOARD_IDS = ['W7cGgwwY'];   // add more board IDs to combine multiple boards into one digest\n// ----------------------------\n\nreturn BOARD_IDS.map(boardId => ({ json: { boardId } }));\n"
+      },
+      "id": "88122c33-c8cc-4b42-9603-94f3a23534a0",
+      "name": "Boards To Fetch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6272,
+        3696
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "board",
+        "operation": "get",
+        "id": {
+          "__rl": true,
+          "value": "={{ $('Boards To Fetch').first().json.boardId }}",
+          "mode": "id"
+        },
+        "additionalFields": {}
+      },
+      "id": "6768f88c-89be-463e-b073-f43692df75b6",
+      "name": "Trello: Get Boards",
+      "type": "n8n-nodes-base.trello",
+      "typeVersion": 1,
+      "position": [
+        6608,
+        3456
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "trelloApi": {
+          "id": "0rR46Rkw8aFFoG3U",
+          "name": "Trello account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "list",
+        "operation": "getAll",
+        "id": "={{ $('Boards To Fetch').first().json.boardId }}\n",
+        "returnAll": true,
+        "additionalFields": {}
+      },
+      "id": "43f3b713-ca1b-4d61-96a6-63fa6455d292",
+      "name": "Trello: Get Lists",
+      "type": "n8n-nodes-base.trello",
+      "typeVersion": 1,
+      "position": [
+        6608,
+        3696
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "trelloApi": {
+          "id": "0rR46Rkw8aFFoG3U",
+          "name": "Trello account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.trello.com/1/boards/' + $json.boardId + '/cards' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter",
+              "value": "all"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "882e041f-1a08-42a8-b94d-65bc434fa0b6",
+      "name": "Trello: Get Cards",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6544,
+        3936
+      ],
+      "alwaysOutputData": false,
+      "credentials": {
+        "trelloApi": {
+          "id": "0rR46Rkw8aFFoG3U",
+          "name": "Trello account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst out = [];\nfor (const item of items) {\n  if (Array.isArray(item.json)) {\n    for (const c of item.json) out.push({ json: c });\n  } else if (item.json && item.json.id) {\n    out.push({ json: item.json });\n  }\n}\nreturn out;"
+      },
+      "id": "8ecb1fcc-e25b-4594-9da0-7ace0ec7e4b0",
+      "name": "Trello: Cards To Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6704,
+        3936
+      ],
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "retryOnFail": true,
+      "maxTries": 3
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst DONE_LIST_NAMES = ['done', 'completed', 'shipped'];\nconst TZ = 'Asia/Manila';\nconst MAX_ROWS_PER_SECTION = 25;\n// ----------------------------\n\nconst boards = $('Trello: Get Boards').all().map(i => i.json);\nconst lists = $('Trello: Get Lists').all().map(i => i.json);\nconst cards = $('Trello: Cards To Items').all().map(i => i.json);\n\nconst boardName = new Map(boards.map(b => [b.id, b.name]));\nconst listName = new Map(lists.map(l => [l.id, l.name]));\nconst listIsDone = new Map(lists.map(l => [l.id, DONE_LIST_NAMES.includes(String(l.name || '').trim().toLowerCase())]));\n\nconst now = Date.now();\nconst completed = [];\nconst overdue = [];\n\nfor (const c of cards) {\n  const inDoneList = listIsDone.get(c.idList) === true;\n\n  if (inDoneList || c.dueComplete === true) {\n    completed.push({\n      ...c,\n      boardName: boardName.get(c.idBoard) || '(board)',\n      listName: listName.get(c.idList) || ''\n    });\n  } else if (c.due) {\n    const due = Date.parse(c.due);\n    if (due < now) {\n      overdue.push({\n        ...c,\n        boardName: boardName.get(c.idBoard) || '(board)',\n        listName: listName.get(c.idList) || '',\n        dueMs: due\n      });\n    }\n  }\n}\n\ncompleted.sort((a, b) => String(a.name).localeCompare(String(b.name)));\noverdue.sort((a, b) => a.dueMs - b.dueMs);\n\nconst esc = (s = '') => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst linkText = (s = '') => esc(s).replace(/\\|/g, '/');\nconst trunc = (s = '', n = 90) => (s.length > n ? s.slice(0, n - 1) + '…' : s);\nconst fmtDate = (ms) => new Intl.DateTimeFormat('en-US', { timeZone: TZ, month: 'short', day: 'numeric' }).format(new Date(ms));\nconst dateLabel = new Intl.DateTimeFormat('en-US', { timeZone: TZ, month: 'long', day: 'numeric', year: 'numeric' }).format(new Date());\n\nconst line = (c, showDue) => {\n  const board = boards.length > 1 ? ` _(${esc(c.boardName)})_` : '';\n  const due = showDue ? `  ⏰ was due ${fmtDate(c.dueMs)}` : '';\n  return `• <${c.shortUrl}|${linkText(trunc(c.name, 80))}>${board}${due}`;\n};\n\nconst sectionBlocks = (title, arr, showDue) => {\n  if (!arr.length) return [{ type: 'section', text: { type: 'mrkdwn', text: `*${title}* — nothing to show.` } }];\n  const shown = arr.slice(0, MAX_ROWS_PER_SECTION);\n  const lines = shown.map(c => line(c, showDue));\n  if (arr.length > shown.length) lines.push(`_…and ${arr.length - shown.length} more_`);\n  return [{ type: 'section', text: { type: 'mrkdwn', text: `*${title}*\\n${lines.join('\\n')}` } }];\n};\n\nreturn [{\n  json: {\n    text: `Weekly digest: ${completed.length} completed, ${overdue.length} overdue`,\n    blocks: [\n      { type: 'header', text: { type: 'plain_text', text: `📊 Weekly status digest — ${dateLabel}` } },\n      { type: 'context', elements: [{ type: 'mrkdwn', text: `Current Status  •  ✅ ${completed.length} completed  •  ⏰ ${overdue.length} overdue` }] },\n      { type: 'divider' },\n      ...sectionBlocks('✅ Completed Items', completed, false),\n      { type: 'divider' },\n      ...sectionBlocks('⏰ Overdue Items', overdue, true),\n    ],\n  },\n}];"
+      },
+      "id": "7e154ea5-9998-44e1-a233-3ae83dc9c92c",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7168,
+        3696
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0C4F9WCD8T",
+          "mode": "id"
+        },
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify({ blocks: $json.blocks }) }}",
+        "text": "={{ $json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "0841c96f-f719-487a-81c9-fa9a1c5cb477",
+      "name": "Slack: Send Digest",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        7360,
+        3696
+      ],
+      "webhookId": "85c49ab7-9998-4e40-95af-db397f4f208c",
+      "credentials": {
+        "slackApi": {
+          "id": "lwPRukz1Q0g9OTNU",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        6944,
+        3680
+      ],
+      "id": "d92a372a-6f93-4bfd-ae90-28a424e1a61f",
+      "name": "Merge"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Boards To Fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Boards To Fetch": {
+      "main": [
+        [
+          {
+            "node": "Trello: Get Cards",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Trello: Get Lists",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Trello: Get Boards",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trello: Get Boards": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trello: Get Lists": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Trello: Get Cards": {
+      "main": [
+        [
+          {
+            "node": "Trello: Cards To Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trello: Cards To Items": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Slack: Send Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "LiI8czSrtnEMoJm0",
+      "projectId": "268xtrXs54BYUBJ0",
+      "createdAt": "2026-09-25T11:08:29.504Z",
+      "updatedAt": "2026-09-25T11:08:29.504Z"
+    }
+  ],
+  "activeVersion": null
+}
