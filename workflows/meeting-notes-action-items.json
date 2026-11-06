@@ -1,0 +1,603 @@
+{
+  "id": "mNa7Ac7i0nItEm5x",
+  "name": "Meeting Notes -> Action Items",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Meeting Notes -> Action Items\n\n**Flow:** every 15 min -> Find Window -> Drive: find new Google Docs titled with *Notes / Transcript / Minutes* -> Pick Next Doc (one per run, deduped with static data) -> Drive: export as text -> Gemini extracts summary, decisions and action items -> **Gmail draft** recap (never auto-sent) -> Slack recap -> Trello cards for each action item.\n\n**Before activating:**\n1. Credentials: Google Drive, Gemini, Gmail, Slack, Trello (already linked to the existing accounts).\n2. `Build Recap` -> set `TRELLO_BOARD_ID`.\n3. `Slack` nodes -> pick the channel for recaps.\n4. Test: create a Google Doc named e.g. \"Notes - Weekly sync\", paste meeting notes, then click **Execute workflow**.\n\nWorks with Google Meet transcripts, Fireflies/Otter exports or hand-typed notes - anything saved as a Google Doc.",
+        "height": 420,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -620,
+        -520
+      ],
+      "name": "Setup Notes",
+      "id": "6c9c3bdb-940e-5006-be9c-8f6479bf2815"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        0
+      ],
+      "name": "Schedule Trigger",
+      "id": "aa6c0e68-a3d9-571e-9621-b687af9af0cb"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\n// Google Docs whose title contains any of these words are treated as meeting notes.\nconst NAME_KEYWORDS = ['Notes', 'Transcript', 'Minutes'];\nconst FIRST_RUN_LOOKBACK_HOURS = 24;   // on the very first run, only look this far back\nconst OVERLAP_MINUTES = 30;            // re-check a little before the last run to avoid gaps\n// ----------------------------\n\nconst state = $getWorkflowStaticData('global');\nconst since = state.lastCheck\n  ? DateTime.fromISO(state.lastCheck).minus({ minutes: OVERLAP_MINUTES })\n  : $now.minus({ hours: FIRST_RUN_LOOKBACK_HOURS });\n\nconst esc = (s) => String(s).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\nconst nameClause = NAME_KEYWORDS.map(k => `name contains '${esc(k)}'`).join(' or ');\nconst q = [\n  \"mimeType='application/vnd.google-apps.document'\",\n  'trashed=false',\n  `(${nameClause})`,\n  `modifiedTime > '${since.toUTC().toISO({ suppressMilliseconds: true })}'`,\n].join(' and ');\n\nreturn [{ json: { q, checkedAt: $now.toUTC().toISO() } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        0
+      ],
+      "name": "Find Window",
+      "id": "5a84dd79-5974-538c-a141-2751a1ff9ca0"
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.q }}"
+            },
+            {
+              "name": "fields",
+              "value": "files(id,name,modifiedTime,webViewLink)"
+            },
+            {
+              "name": "orderBy",
+              "value": "modifiedTime"
+            },
+            {
+              "name": "pageSize",
+              "value": "25"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        0
+      ],
+      "name": "Drive: Find New Notes",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "RP3GAf5qLMdnWGF3",
+          "name": "Google Drive account 2"
+        }
+      },
+      "id": "5c3dafc9-e6ab-56ec-b032-48f782ab97f5"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Processes ONE new notes doc per run (runs every 15 min), which keeps item pairing simple.\nconst MAX_REMEMBERED = 500;\n\nconst state = $getWorkflowStaticData('global');\nstate.processed = state.processed || {};\n\nconst files = ($input.first().json.files || []);\nconst next = files.find(f => f && f.id && !state.processed[f.id]);\n\nif (!next) {\n  // Nothing left in this window -> move the window forward.\n  state.lastCheck = $('Find Window').first().json.checkedAt;\n  const ids = Object.keys(state.processed);\n  if (ids.length > MAX_REMEMBERED) {\n    ids.sort((a, b) => String(state.processed[a]).localeCompare(String(state.processed[b])));\n    for (const id of ids.slice(0, ids.length - MAX_REMEMBERED)) delete state.processed[id];\n  }\n  return [];\n}\n\nreturn [{ json: { id: next.id, name: next.name, webViewLink: next.webViewLink || `https://docs.google.com/document/d/${next.id}/edit`, modifiedTime: next.modifiedTime } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        0
+      ],
+      "name": "Pick Next Doc",
+      "id": "4713650b-d885-5df2-a90c-8189b915262f"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://www.googleapis.com/drive/v3/files/' + $json.id + '/export' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "mimeType",
+              "value": "text/plain"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        0
+      ],
+      "name": "Drive: Export as Text",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "RP3GAf5qLMdnWGF3",
+          "name": "Google Drive account 2"
+        }
+      },
+      "id": "ce5aa01b-c3b1-515d-9a47-704c279664ca"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst GEMINI_MODEL = 'gemini-2.5-flash';\nconst EXEC_NAME = 'Marvin';\nconst TZ = 'Asia/Manila';\nconst MAX_NOTE_CHARS = 60000;   // keeps token usage in check on long transcripts\nconst MIN_NOTE_CHARS = 50;      // ignore empty / placeholder docs\nconst IGNORE_EMAILS = [];       // e.g. ['you@yourdomain.com'] -> never added as a recap recipient\n// ----------------------------\n\nconst doc = $('Pick Next Doc').first().json;\nlet notes = String($json.text ?? $json.data ?? '').replace(/\\r/g, '').trim();\n\nif (notes.length < MIN_NOTE_CHARS) {\n  const state = $getWorkflowStaticData('global');\n  state.processed = state.processed || {};\n  state.processed[doc.id] = $now.toUTC().toISO();\n  return [];\n}\nif (notes.length > MAX_NOTE_CHARS) notes = notes.slice(0, MAX_NOTE_CHARS) + '\\n[...truncated]';\n\n// Recipients come only from addresses literally written in the notes (never guessed by the AI).\nconst ignore = new Set(IGNORE_EMAILS.map(e => e.toLowerCase()));\nconst attendees = [...new Set((notes.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/g) || [])\n  .map(e => e.toLowerCase()))].filter(e => !ignore.has(e)).slice(0, 20);\n\nconst today = $now.setZone(TZ).toISODate();\nconst prompt = `You are an executive assistant for ${EXEC_NAME}. Today is ${today} (${TZ}).\nRead the meeting notes or transcript below and extract:\n- meeting_title: a short, specific title for the meeting\n- summary: 2-4 sentences on what was discussed and why it matters\n- decisions: decisions that were actually made (empty list if none)\n- action_items: each with\n    task: one clear task starting with a verb\n    owner: the person responsible, or \"Unassigned\" if nobody was named\n    due_date: YYYY-MM-DD; resolve relative dates such as \"next Friday\" from today; null if no date was stated\n    priority: high, medium or low\nOnly include action items that were clearly assigned or agreed. Never invent owners, dates or tasks.\n\nDocument title: ${doc.name}\n---\n${notes}`;\n\nconst schema = {\n  type: 'OBJECT',\n  properties: {\n    meeting_title: { type: 'STRING' },\n    summary: { type: 'STRING' },\n    decisions: { type: 'ARRAY', items: { type: 'STRING' } },\n    action_items: {\n      type: 'ARRAY',\n      items: {\n        type: 'OBJECT',\n        properties: {\n          task: { type: 'STRING' },\n          owner: { type: 'STRING' },\n          due_date: { type: 'STRING', nullable: true },\n          priority: { type: 'STRING', enum: ['high', 'medium', 'low'] },\n        },\n        required: ['task', 'owner', 'priority'],\n      },\n    },\n  },\n  required: ['meeting_title', 'summary', 'decisions', 'action_items'],\n};\n\nreturn [{\n  json: {\n    geminiModel: GEMINI_MODEL,\n    geminiBody: {\n      contents: [{ role: 'user', parts: [{ text: prompt }] }],\n      generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: schema },\n    },\n    docId: doc.id,\n    docName: doc.name,\n    docLink: doc.webViewLink,\n    attendees,\n    execName: EXEC_NAME,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ],
+      "name": "Build Gemini Request",
+      "id": "7b7eaeae-e915-57bf-a9d3-4b51828dd9cb"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/' + $json.geminiModel + ':generateContent' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.geminiBody) }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "name": "Gemini: Extract Action Items",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "NvPAr1pnRiUu6HeI",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "id": "dd3c397c-c994-52fa-8bcc-d3fa5575f3ab"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Defensive parsing of the Gemini response. Marks the doc as processed either way,\n// so a doc that can't be parsed is flagged once in Slack instead of retried forever.\nconst ctx = $('Build Gemini Request').first().json;\nconst raw = $json;\n\nlet parsed = null;\nlet failReason = '';\ntry {\n  const text = (raw?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();\n  if (!text) throw new Error(raw?.promptFeedback?.blockReason ? `blocked: ${raw.promptFeedback.blockReason}` : 'empty response');\n  parsed = JSON.parse(text.replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, ''));\n} catch (e) {\n  failReason = e.message;\n}\n\nconst state = $getWorkflowStaticData('global');\nstate.processed = state.processed || {};\nstate.processed[ctx.docId] = $now.toUTC().toISO();\n\nconst p = parsed || {};\nconst clean = (s) => String(s ?? '').replace(/\\s+/g, ' ').trim();\nconst actionItems = (Array.isArray(p.action_items) ? p.action_items : [])\n  .filter(a => a && clean(a.task))\n  .slice(0, 25)\n  .map(a => ({\n    task: clean(a.task),\n    owner: clean(a.owner) || 'Unassigned',\n    dueDate: /^\\d{4}-\\d{2}-\\d{2}$/.test(clean(a.due_date)) ? clean(a.due_date) : null,\n    priority: ['high', 'medium', 'low'].includes(clean(a.priority).toLowerCase()) ? clean(a.priority).toLowerCase() : 'medium',\n  }));\n\nreturn [{\n  json: {\n    ok: !!parsed,\n    failReason,\n    title: clean(p.meeting_title) || ctx.docName,\n    summary: clean(p.summary),\n    decisions: (Array.isArray(p.decisions) ? p.decisions : []).map(clean).filter(Boolean).slice(0, 15),\n    actionItems,\n    attendees: ctx.attendees,\n    docName: ctx.docName,\n    docLink: ctx.docLink,\n    execName: ctx.execName,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        0
+      ],
+      "name": "Parse Action Items",
+      "id": "0f1a91d4-abbb-5479-98ef-269c86a096ef"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c7a1e2d3-4b5c-4d6e-8f70-1a2b3c4d5e6f",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1160,
+        0
+      ],
+      "name": "Parsed OK?",
+      "id": "16d63555-c0bf-54d4-bf1b-3d7c1eb6c5a3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst TRELLO_BOARD_ID = 'W7cGgwwY';   // board that receives the action-item cards\n// ----------------------------\n\nconst m = $json;\n\n// ----- Gmail draft (plain text, never sent automatically) -----\nconst lines = ['Hi all,', '', `Thanks for joining \"${m.title}\". Here's a quick recap.`, '', 'SUMMARY', m.summary || '(no summary)', ''];\nif (m.decisions.length) {\n  lines.push('DECISIONS');\n  m.decisions.forEach(d => lines.push(`- ${d}`));\n  lines.push('');\n}\nlines.push('ACTION ITEMS');\nif (m.actionItems.length) {\n  m.actionItems.forEach(a => lines.push(`- ${a.task} | Owner: ${a.owner}${a.dueDate ? ` | Due: ${a.dueDate}` : ''}`));\n} else {\n  lines.push('- None recorded');\n}\nlines.push('', 'Let me know if I missed anything.', '', 'Best,', m.execName);\n\nconst b64 = (s) => Buffer.from(s, 'utf8').toString('base64');\nconst subject = `Recap: ${m.title}`;\nconst headers = [\n  m.attendees.length ? `To: ${m.attendees.join(', ')}` : null,\n  `Subject: =?UTF-8?B?${b64(subject)}?=`,\n  'MIME-Version: 1.0',\n  'Content-Type: text/plain; charset=\"UTF-8\"',\n  'Content-Transfer-Encoding: base64',\n].filter(Boolean);\nconst mime = headers.join('\\r\\n') + '\\r\\n\\r\\n' + b64(lines.join('\\r\\n'));\nconst raw = Buffer.from(mime, 'utf8').toString('base64').replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n\n// ----- Slack blocks -----\nconst esc = (s = '') => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst prio = { high: ':red_circle:', medium: ':large_orange_circle:', low: ':white_circle:' };\nconst itemsText = m.actionItems.length\n  ? m.actionItems.map(a => `${prio[a.priority] || ''} *${esc(a.task)}* - ${esc(a.owner)}${a.dueDate ? ` (due ${a.dueDate})` : ''}`).join('\\n')\n  : '_No action items recorded._';\n\nconst blocks = [\n  { type: 'header', text: { type: 'plain_text', text: `Recap: ${m.title}`.slice(0, 150) } },\n  { type: 'section', text: { type: 'mrkdwn', text: esc(m.summary || '(no summary)').slice(0, 2900) } },\n];\nif (m.decisions.length) {\n  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: ('*Decisions*\\n' + m.decisions.map(d => `- ${esc(d)}`).join('\\n')).slice(0, 2900) } });\n}\nblocks.push({ type: 'section', text: { type: 'mrkdwn', text: (`*Action items (${m.actionItems.length})*\\n` + itemsText).slice(0, 2900) } });\nblocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `<${m.docLink}|Open notes> - recap email saved to Gmail drafts${m.attendees.length ? ` for ${m.attendees.length} attendee(s)` : ''} - cards added to Trello` }] });\n\nreturn [{ json: { raw, blocks, text: `Recap: ${m.title} - ${m.actionItems.length} action item(s)`, trelloBoardId: TRELLO_BOARD_ID } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        -100
+      ],
+      "name": "Build Recap",
+      "id": "15f4a0a6-1d98-5e38-8171-76f91d467580"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: { raw: $json.raw } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        -100
+      ],
+      "name": "Gmail: Save Recap Draft",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      },
+      "id": "428a38ff-0946-5c66-b5ab-1b6bfe7c9a34"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0C3KDMPP7W",
+          "mode": "id"
+        },
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify({ blocks: $('Build Recap').first().json.blocks }) }}",
+        "text": "={{ $('Build Recap').first().json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "unfurl_links": false,
+          "unfurl_media": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1820,
+        -100
+      ],
+      "name": "Slack: Post Recap",
+      "credentials": {
+        "slackApi": {
+          "id": "lwPRukz1Q0g9OTNU",
+          "name": "Slack account"
+        }
+      },
+      "webhookId": "8f3c2a71-5d4e-4b6a-9c1f-2e7d8a9b0c13",
+      "id": "55d6ade3-211f-54cb-8f33-c8e4699da860"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.trello.com/1/boards/' + $('Build Recap').first().json.trelloBoardId + '/lists' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter",
+              "value": "open"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2040,
+        -100
+      ],
+      "name": "Trello: Get Lists",
+      "credentials": {
+        "trelloApi": {
+          "id": "0rR46Rkw8aFFoG3U",
+          "name": "Trello account"
+        }
+      },
+      "id": "b0ac39fb-be91-5209-9f29-c758e9dc8779"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\n// New cards go to the first open list whose name matches; otherwise the board's first list.\nconst LIST_NAME_MATCH = /^(to ?do|backlog|inbox|action items?|this week)$/i;\nconst DUE_TIME = 'T09:00:00+08:00';   // due dates land at 9:00 AM Manila time\n// ----------------------------\n\nconst lists = $input.all().map(i => i.json).filter(l => l && l.id && !l.closed);\nconst list = lists.find(l => LIST_NAME_MATCH.test(String(l.name || '').trim())) || lists[0];\nif (!list) throw new Error('No open lists found on the Trello board - check TRELLO_BOARD_ID in \"Build Recap\".');\n\nconst m = $('Parse Action Items').first().json;\nreturn m.actionItems.map(a => {\n  const body = {\n    idList: list.id,\n    name: a.owner && a.owner !== 'Unassigned' ? `${a.task} (${a.owner})` : a.task,\n    desc: `From meeting: ${m.title}\\nOwner: ${a.owner}\\nPriority: ${a.priority}\\n\\nNotes: ${m.docLink}`,\n    pos: a.priority === 'high' ? 'top' : 'bottom',\n  };\n  if (a.dueDate) body.due = `${a.dueDate}${DUE_TIME}`;\n  return { json: { body } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2260,
+        -100
+      ],
+      "name": "Build Cards",
+      "id": "226342f2-415a-5644-aa90-85c02c117067"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.trello.com/1/cards",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2480,
+        -100
+      ],
+      "name": "Trello: Create Card",
+      "credentials": {
+        "trelloApi": {
+          "id": "0rR46Rkw8aFFoG3U",
+          "name": "Trello account"
+        }
+      },
+      "id": "8c96a806-d2fc-5b6f-857b-e609da508bf7"
+    },
+    {
+      "parameters": {
+        "jsCode": "const m = $json;\nreturn [{ json: { text: `:warning: Couldn't extract action items from \"${m.docName}\" (${m.failReason || 'unknown error'}). Please review it manually: ${m.docLink}` } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        140
+      ],
+      "name": "Format Needs Review",
+      "id": "2aacfa93-67e2-538f-ad16-e5d2d65c54a2"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0C3KDMPP7W",
+          "mode": "id"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "unfurl_links": false,
+          "unfurl_media": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1600,
+        140
+      ],
+      "name": "Slack: Needs Review",
+      "credentials": {
+        "slackApi": {
+          "id": "lwPRukz1Q0g9OTNU",
+          "name": "Slack account"
+        }
+      },
+      "webhookId": "a2b4c6d8-1e3f-4a5b-8c7d-9e0f1a2b3c4d",
+      "id": "dd12dc3d-462b-5327-b40c-ad297eeb49af"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Find Window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Window": {
+      "main": [
+        [
+          {
+            "node": "Drive: Find New Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive: Find New Notes": {
+      "main": [
+        [
+          {
+            "node": "Pick Next Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Next Doc": {
+      "main": [
+        [
+          {
+            "node": "Drive: Export as Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive: Export as Text": {
+      "main": [
+        [
+          {
+            "node": "Build Gemini Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini Request": {
+      "main": [
+        [
+          {
+            "node": "Gemini: Extract Action Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: Extract Action Items": {
+      "main": [
+        [
+          {
+            "node": "Parse Action Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Action Items": {
+      "main": [
+        [
+          {
+            "node": "Parsed OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsed OK?": {
+      "main": [
+        [
+          {
+            "node": "Build Recap",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Needs Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Recap": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Save Recap Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Save Recap Draft": {
+      "main": [
+        [
+          {
+            "node": "Slack: Post Recap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Post Recap": {
+      "main": [
+        [
+          {
+            "node": "Trello: Get Lists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trello: Get Lists": {
+      "main": [
+        [
+          {
+            "node": "Build Cards",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Cards": {
+      "main": [
+        [
+          {
+            "node": "Trello: Create Card",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Needs Review": {
+      "main": [
+        [
+          {
+            "node": "Slack: Needs Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}

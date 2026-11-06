@@ -14,6 +14,7 @@ A centralized repository of local **n8n** workflows, AI integrations, and backgr
 | Workflow File | Stack | Purpose |
 | :--- | :--- | :--- |
 | [`meeting-prep-briefing.json`](workflows/meeting-prep-briefing.json) | n8n, Google Calendar, Gmail, Gemini AI, Slack | **Executive Intelligence:** Watches the calendar 45–60 minutes ahead, pulls related attendee email threads, adds web context via Gemini, and sends a single meeting summary to Slack. |
+| [`meeting-notes-action-items.json`](workflows/meeting-notes-action-items.json) | n8n, Google Drive, Gemini AI, Gmail, Slack, Trello | **Meeting Follow-Through:** Picks up new meeting notes or transcripts saved as Google Docs, extracts the summary, decisions and action items with Gemini, saves a recap email as a Gmail draft, posts the recap to Slack, and creates a Trello card for each action item. |
 | [`expense-receipt-logging.json`](workflows/expense-receipt-logging.json) | n8n, Gmail, Gemini AI, Google Drive | **Document Parsing:** Detects receipt attachments in Gmail, stores the files in Google Drive, and extracts structured expense fields with a Gemini schema. |
 | [`backup-n8n-workflows-to-github.json`](workflows/backup-n8n-workflows-to-github.json) | n8n, GitHub API | **Workflow Backups:** Scheduled job that exports local workflows, strips credential data, normalizes file names, and commits the JSON to this repository. |
 | [`flight-finder.json`](workflows/flight-finder.json) | n8n, Google Flights, Email | **Price Monitoring:** Checks Google Flights for configured routes and dates and flags price drops. |
