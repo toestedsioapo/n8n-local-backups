@@ -121,12 +121,12 @@
         "operation": "edit",
         "owner": {
           "__rl": true,
-          "value": "YOUR_GITHUB_USERNAME",
+          "value": "toestedsioapo",
           "mode": "name"
         },
         "repository": {
           "__rl": true,
-          "value": "YOUR_REPO_NAME",
+          "value": "n8n-local-backups",
           "mode": "name"
         },
         "filePath": "=workflows/{{ $('Get all workflows').item.json.id }}.json",
@@ -154,12 +154,12 @@
         "resource": "file",
         "owner": {
           "__rl": true,
-          "value": "YOUR_GITHUB_USERNAME",
+          "value": "toestedsioapo",
           "mode": "name"
         },
         "repository": {
           "__rl": true,
-          "value": "YOUR_REPO_NAME",
+          "value": "n8n-local-backups",
           "mode": "name"
         },
         "filePath": "=workflows/{{ $('Get all workflows').item.json.id }}.json",

@@ -1,41 +1,54 @@
-n8n Automation Engine & Workflow Backups
+# n8n Automation Engine & Workflow Backups
 
-A centralized production repository hosting local workflows, AI integrations, and background automation systems built on **n8n**. This ecosystem serves as an operational backbone—streamlining document parsing, scheduling intelligence, event briefings, and background data replication pipelines.
+![n8n](https://img.shields.io/badge/built%20with-n8n-EA4B71)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
+A centralized repository of local **n8n** workflows, AI integrations, and background automations built for Executive Assistant / Virtual Assistant operations — document parsing, scheduling, event briefings, travel logistics, and automated workflow backups.
 
+**Author:** Marvin Liemor ([@toestedsioapo](https://github.com/toestedsioapo))
 
-Core Automation Ecosystem
+---
 
-| Workflow File | Infrastructure Stack | Architectural Focus & Purpose |
+## Core Automation Ecosystem
+
+| Workflow File | Stack | Purpose |
 | :--- | :--- | :--- |
-| **`meeting-prep-briefing.json`** | n8n, Google Calendar, Gmail, Gemini AI, Slack | **Executive Intelligence:** Monitors calendars 45–60 mins ahead, pulls corresponding attendee email threads, appends contextual web search data via Gemini LLM, and dispatches unified contextual executive summaries to Slack. |
-| **`expense-receipt-logging.json`** | n8n, Gmail, Gemini AI, Google Drive | **Document Parsing System:** Listens for document/receipt attachments via Gmail webhooks, routes binaries via Base64 encodings to Google Drive, and executes deterministic entity extraction through an optimized Gemini Vision/Text schema. |
-| **`backup-n8n-workflows-to-github.json`** | n8n, GitHub API, File System | **CI/CD Configuration:** Automated background cron engine tracking local changes, stripping structural credential states, formatting names dynamically, and pushing version-controlled JSON arrays directly into Git. |
-| **`flight-finder.json`** | n8n, Web Scraping / APIs, Email | **Asynchronous Monitoring:** Scrapes Google Flights configuration matrixes sequentially to flag real-time price reductions, running data transformations against defined destination trip bounds. |
-| **`inbox-triage-daily-briefing.json`** | n8n, IMAP/Gmail, LLM Classifier, Slack | **Information Architecture:** Triages raw inbound communications, filters repetitive spam payloads, evaluates message urgency vectors, and pipes organized daily briefings directly into targeted messaging rooms. |
-| **`new-contact-crm-lite-updater.json`** | n8n, Webhooks, CRM Platform / Databases | **Data Pipeline Integrity:** Listens for active incoming contact webhooks, mutates payload formats to enforce casing integrity, standardizes text blocks, and provisions updates flawlessly into internal records databases. |
-| **`travel-log-booking.json`** | n8n, Gmail Parser, Airtable / Sheets | **State Machine Logistics:** Intercepts confirmations (hotels, transit tickets, rentals), isolates chronological scheduling data, and catalogs relational database updates automatically. |
-| **`travel-consolidated-itinerary.json`** | n8n, Database Engine, Document Exporter | **Data Aggregation:** Queries separate booking rows dynamically, collapses cross-entity nodes into an optimized relational structure, and formats a pristine travel agenda interface. |
-| **`calendar-scheduling.json`** | n8n, Google Calendar, Scheduling Logic | **Algorithmic Guardrails:** Protects deep-work focus windows by checking cross-calendar dependencies, assessing collision constraints, and establishing intelligent multi-party invites. |
-| **`recurring-status-digest-trello.json`** | n8n, Trello API, Markdown Parser, Slack | **Agile Status Reporting:** Polls active project Kanban cards weekly, maps completion vectors across sprints, converts structural metadata to markdown lists, and relays progress to channels. |
+| [`meeting-prep-briefing.json`](workflows/meeting-prep-briefing.json) | n8n, Google Calendar, Gmail, Gemini AI, Slack | **Executive Intelligence:** Watches the calendar 45–60 minutes ahead, pulls related attendee email threads, adds web context via Gemini, and sends a single meeting summary to Slack. |
+| [`expense-receipt-logging.json`](workflows/expense-receipt-logging.json) | n8n, Gmail, Gemini AI, Google Drive | **Document Parsing:** Detects receipt attachments in Gmail, stores the files in Google Drive, and extracts structured expense fields with a Gemini schema. |
+| [`backup-n8n-workflows-to-github.json`](workflows/backup-n8n-workflows-to-github.json) | n8n, GitHub API | **Workflow Backups:** Scheduled job that exports local workflows, strips credential data, normalizes file names, and commits the JSON to this repository. |
+| [`flight-finder.json`](workflows/flight-finder.json) | n8n, Google Flights, Email | **Price Monitoring:** Checks Google Flights for configured routes and dates and flags price drops. |
+| [`inbox-triage-daily-briefing.json`](workflows/inbox-triage-daily-briefing.json) | n8n, Gmail, LLM classifier, Slack | **Inbox Triage:** Classifies incoming mail by urgency, filters noise, and posts an organized daily briefing to Slack. |
+| [`new-contact-crm-lite-updater.json`](workflows/new-contact-crm-lite-updater.json) | n8n, Webhooks, Sheets / database | **Contact Pipeline:** Receives new-contact webhooks, normalizes names and casing, and updates the contact records. |
+| [`travel-log-booking.json`](workflows/travel-log-booking.json) | n8n, Gmail parser, Airtable / Sheets | **Booking Logger:** Captures hotel, flight, and rental confirmations from email and logs them in order. |
+| [`travel-consolidated-itinerary.json`](workflows/travel-consolidated-itinerary.json) | n8n, Sheets / database, document export | **Itinerary Builder:** Combines logged bookings into a single, clean travel itinerary. |
+| [`calendar-scheduling.json`](workflows/calendar-scheduling.json) | n8n, Google Calendar | **Scheduling Guardrails:** Protects focus blocks, checks for conflicts across calendars, and sends multi-party invites. |
+| [`recurring-status-digest-trello.json`](workflows/recurring-status-digest-trello.json) | n8n, Trello API, Slack | **Status Reporting:** Polls Trello cards weekly, summarizes progress as Markdown, and posts the digest to Slack. |
 
+## Technical Highlights
 
+- **Code nodes for data cleanup:** `n8n-nodes-base.code` steps in plain JavaScript sanitize text, trim token usage, and apply regex parsing.
+- **Duplicate protection:** `$getWorkflowStaticData` stores processed IDs so the same item isn't handled twice.
+- **Credential-safe exports:** Credentials are stripped from workflow JSON before it is backed up to a public repository.
 
-Technical Architecture Highlights
+## Importing a Workflow
 
-* **Advanced Data Mutators:** Heavy usage of specialized `n8n-nodes-base.code` steps running clean JavaScript primitives to sanitize text nodes, control token allocations, compress scopes, and execute Regex parsing rules safely.
-* **Resilient State Management:** Workflows utilize dynamic static memory arrays (`$getWorkflowStaticData`) to preserve identity signatures and prevent duplicate executions during production cycles.
-* **Isolated Environment Schemas:** Configurations isolate authorization channels cleanly by striping active system values out of production configuration payloads before backing them up to public visibility.
+1. Open any file in the [`workflows/`](workflows) folder and copy its raw contents.
+2. Open a workflow canvas in your n8n instance.
+3. Click the canvas and paste with `Ctrl + V` (or `Cmd + V`).
+4. Reconnect your own credentials (Gmail, Google Calendar, Slack, Trello, Gemini, GitHub) on each node before running.
 
+> Email addresses and IDs inside the workflows are sample or placeholder values — replace them with your own.
 
+## Roadmap
 
-Deployment & Local Ingestion
+- [ ] Add a screenshot of each workflow canvas
+- [ ] Document required credentials and environment variables per workflow
+- [ ] Add a `CHANGELOG.md` for tracking workflow updates
 
-To spin up any workflow layout layer inside your local canvas infrastructure:
+## Contributing
 
-1. Copy the raw block contents from any desired tracking file in the `workflows/` directory tree.
-2. Open an active **n8n canvas workspace** within your web interface session.
-3. Click directly onto the browser interactive grid layer and press `Ctrl + V` (or `Cmd + V`).
-4. Re-authenticate local API scopes within the generated node interfaces to verify access keys.
+Issues and suggestions are welcome — open an issue or a pull request.
 
-Have fun!.
+## License
+
+Released under the [MIT License](LICENSE). © 2026 Marvin Liemor.
