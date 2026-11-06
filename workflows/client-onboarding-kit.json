@@ -1,0 +1,849 @@
+{
+  "id": "cl1entOnb0ardKit",
+  "name": "New Client Onboarding Kit",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## New Client Onboarding Kit\n\n**How to use:** open `http://localhost:5678/form/client-onboarding` (or click *Execute workflow* to test) and submit the new client's details.\n\n**Flow:** Form -> Config -> Google Drive client folder + subfolders -> Trello board (To Do / In Progress / Waiting on Client / Done) with an *Onboarding checklist* card -> Calendar **kickoff hold** (no invite sent) -> **Gmail welcome draft** (never auto-sent) -> optional row in a *Clients* sheet -> Slack summary -> confirmation page with all links.\n\n**Before activating:**\n1. *Config* -> `PARENT_FOLDER_ID` (Drive folder for client folders, blank = My Drive), `SCHEDULING_LINK`, `EXEC_NAME`.\n2. Optional: `CLIENTS_SHEET_ID` to log each client (headers: Date, Client, Company, Email, Service, Start Date, Drive Folder, Trello Board).\n3. Edit `CHECKLIST` / `SUBFOLDERS` to match your process.",
+        "height": 470,
+        "width": 540,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        -560
+      ],
+      "name": "Setup Notes",
+      "id": "a5201209-0409-565b-b4bc-8c694f0f2833"
+    },
+    {
+      "parameters": {
+        "formTitle": "New client onboarding",
+        "formDescription": "Sets up Drive, Trello, a kickoff hold and a welcome email draft for a new client.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Client name",
+              "placeholder": "e.g. Carla Reyes",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Company",
+              "placeholder": "e.g. BrightPath Co."
+            },
+            {
+              "fieldLabel": "Client email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Service",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Executive Assistant support"
+                  },
+                  {
+                    "option": "Inbox & calendar management"
+                  },
+                  {
+                    "option": "Travel coordination"
+                  },
+                  {
+                    "option": "Other"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Start date",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Notes",
+              "fieldType": "textarea",
+              "placeholder": "Anything the kickoff should cover"
+            }
+          ]
+        },
+        "options": {
+          "path": "client-onboarding",
+          "buttonLabel": "Submit",
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -600,
+        0
+      ],
+      "name": "Form: New Client",
+      "webhookId": "e4983da3-5956-5a46-9dc3-b26102b6ac2f",
+      "id": "0523091a-2aed-5e73-b726-4456a02ebe6e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst PARENT_FOLDER_ID = '';          // Drive folder that holds client folders ('' = My Drive root)\nconst SUBFOLDERS = ['01 Contracts', '02 Invoices', '03 Deliverables', '04 Meeting Notes'];\nconst TRELLO_LISTS = ['To Do', 'In Progress', 'Waiting on Client', 'Done'];\nconst CHECKLIST = [\n  'Send welcome email',\n  'Collect signed agreement',\n  'Get access: email, calendar, shared drives',\n  'Confirm communication channel and working hours',\n  'Hold kickoff call',\n  'Set up recurring weekly check-in',\n];\nconst KICKOFF_TIME = '10:00';         // local time on the start date\nconst KICKOFF_MINUTES = 30;\nconst TZ = 'Asia/Manila';\nconst SCHEDULING_LINK = '';           // e.g. your Calendly / Google booking page ('' = omit)\nconst EXEC_NAME = 'Marvin';\nconst CLIENTS_SHEET_ID = '';          // optional Google Sheet to log clients ('' = skip)\n// ----------------------------\n\nconst f = $json;\nconst client = String(f['Client name'] || '').trim();\nconst company = String(f['Company'] || '').trim();\nconst email = String(f['Client email'] || '').trim().toLowerCase();\nconst label = company ? `${company} (${client})` : client;\nlet start = DateTime.fromISO(String(f['Start date'] || ''), { zone: TZ });\nif (!start.isValid) start = $now.setZone(TZ).plus({ days: 1 });\nconst [hh, mm] = KICKOFF_TIME.split(':').map(Number);\nconst kickoff = start.set({ hour: hh, minute: mm || 0, second: 0, millisecond: 0 });\n\nreturn [{ json: {\n  client, company, email, label, service: f['Service'] || '', notes: String(f['Notes'] || '').trim(),\n  startDate: start.toISODate(), kickoffStart: kickoff.toISO(), kickoffEnd: kickoff.plus({ minutes: KICKOFF_MINUTES }).toISO(),\n  PARENT_FOLDER_ID, SUBFOLDERS, TRELLO_LISTS, CHECKLIST, TZ, SCHEDULING_LINK, EXEC_NAME, CLIENTS_SHEET_ID,\n  folderBody: { name: `Client - ${label}`, mimeType: 'application/vnd.google-apps.folder', ...(PARENT_FOLDER_ID ? { parents: [PARENT_FOLDER_ID] } : {}) },\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        0
+      ],
+      "name": "Config",
+      "id": "88406c48-be32-57ae-997a-fdf9c44ec68b"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,name,webViewLink"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.folderBody) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        0
+      ],
+      "name": "Drive: Create Client Folder",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "RP3GAf5qLMdnWGF3",
+          "name": "Google Drive account 2"
+        }
+      },
+      "id": "297bbd5a-6dc8-5edf-b8a2-a6e1acc5b013"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst parent = $json.id;\nreturn cfg.SUBFOLDERS.map(name => ({ json: { body: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] } } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        0
+      ],
+      "name": "Subfolders To Items",
+      "id": "1c867495-5173-5f4e-8136-ced38598e260"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,name"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        0
+      ],
+      "name": "Drive: Create Subfolder",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "RP3GAf5qLMdnWGF3",
+          "name": "Google Drive account 2"
+        }
+      },
+      "id": "2a5674e7-ada1-575c-98f0-4d004381706d"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nreturn [{ json: { body: { name: `Client: ${cfg.label}`, defaultLists: false, desc: `${cfg.service} - start ${cfg.startDate}\\nContact: ${cfg.client} <${cfg.email}>\\nDrive: ${$('Drive: Create Client Folder').first().json.webViewLink}` } } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ],
+      "name": "Board Request",
+      "id": "6449db22-7365-5e8e-b6de-e4c53ac3384a"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.trello.com/1/boards",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "name": "Trello: Create Board",
+      "credentials": {
+        "trelloApi": {
+          "id": "0rR46Rkw8aFFoG3U",
+          "name": "Trello account"
+        }
+      },
+      "id": "4bd0dc5e-6dba-59dd-bd51-4d313295e7d2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst boardId = $json.id;\nreturn cfg.TRELLO_LISTS.map((name, i) => ({ json: { body: { name, idBoard: boardId, pos: (i + 1) * 1000 } } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        0
+      ],
+      "name": "Lists To Items",
+      "id": "afae53d4-9a85-59fe-aac1-34f9c96dd674"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.trello.com/1/lists",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1160,
+        0
+      ],
+      "name": "Trello: Create List",
+      "credentials": {
+        "trelloApi": {
+          "id": "0rR46Rkw8aFFoG3U",
+          "name": "Trello account"
+        }
+      },
+      "id": "570784b1-8d51-586b-bb1e-01914e834b22"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst first = $input.all().map(i => i.json).sort((a, b) => a.pos - b.pos)[0];\nconst due = DateTime.fromISO(cfg.kickoffStart).toUTC().toISO();\nreturn [{ json: { body: { idList: first.id, name: `Onboarding checklist - ${cfg.label}`, desc: `Kickoff: ${cfg.kickoffStart}\\nDrive: ${$('Drive: Create Client Folder').first().json.webViewLink}${cfg.notes ? `\\n\\nNotes: ${cfg.notes}` : ''}`, due, pos: 'top' } } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        0
+      ],
+      "name": "Checklist Card Request",
+      "id": "a5d23064-b623-52a7-ad9f-28b0dac7409f"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.trello.com/1/cards",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        0
+      ],
+      "name": "Trello: Create Card",
+      "credentials": {
+        "trelloApi": {
+          "id": "0rR46Rkw8aFFoG3U",
+          "name": "Trello account"
+        }
+      },
+      "id": "88c4cd16-287e-5299-930c-137fe27aa300"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.trello.com/1/checklists",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ idCard: $json.id, name: 'Onboarding' }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        0
+      ],
+      "name": "Trello: Create Checklist",
+      "credentials": {
+        "trelloApi": {
+          "id": "0rR46Rkw8aFFoG3U",
+          "name": "Trello account"
+        }
+      },
+      "id": "36d377ca-f840-50d8-b856-07edfea21e0c"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst id = $json.id;\nreturn cfg.CHECKLIST.map(name => ({ json: { url: `https://api.trello.com/1/checklists/${id}/checkItems`, body: { name, pos: 'bottom' } } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        0
+      ],
+      "name": "Checklist Items",
+      "id": "1f68cd39-ef45-51aa-bcf8-9d6c0538032d"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2260,
+        0
+      ],
+      "name": "Trello: Add Checklist Item",
+      "credentials": {
+        "trelloApi": {
+          "id": "0rR46Rkw8aFFoG3U",
+          "name": "Trello account"
+        }
+      },
+      "id": "ca2a3dd7-197a-56ce-8b1c-da2ceff0098e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nreturn [{ json: { body: {\n  summary: `HOLD: Kickoff - ${cfg.label}`,\n  description: `Kickoff call with ${cfg.client} <${cfg.email}> (${cfg.service}).\\nConfirm the time with the client, then add them as a guest.\\n\\nDrive: ${$('Drive: Create Client Folder').first().json.webViewLink}\\nTrello: ${$('Trello: Create Board').first().json.url}${cfg.notes ? `\\n\\nNotes: ${cfg.notes}` : ''}`,\n  start: { dateTime: cfg.kickoffStart, timeZone: cfg.TZ },\n  end: { dateTime: cfg.kickoffEnd, timeZone: cfg.TZ },\n  transparency: 'opaque',\n} } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        0
+      ],
+      "name": "Kickoff Hold Request",
+      "id": "260c0481-8983-50b1-9e3c-0bb80cdaa7e6"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sendUpdates",
+              "value": "none"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2700,
+        0
+      ],
+      "name": "Calendar: Kickoff Hold",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "daYJ9jJhOTcshVKS",
+          "name": "Google Calendar account"
+        }
+      },
+      "id": "2fffb759-3fc6-527a-bc6e-80f2ec441424"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst first = cfg.client.split(/\\s+/)[0] || 'there';\nconst kickoff = DateTime.fromISO(cfg.kickoffStart).setZone(cfg.TZ).toFormat(\"cccc, LLLL d 'at' h:mm a\");\nconst body = [\n  `Hi ${first},`,\n  '',\n  `Welcome aboard! I'm excited to start working with you${cfg.company ? ` and the ${cfg.company} team` : ''} on ${String(cfg.service).toLowerCase() || 'your project'}.`,\n  '',\n  'Here is what happens next:',\n  `1. Kickoff call - I've pencilled in ${kickoff} (${cfg.TZ.replace('_', ' ')} time).${cfg.SCHEDULING_LINK ? ` If that doesn't work, pick another slot here: ${cfg.SCHEDULING_LINK}` : ' Let me know if another time works better.'}`,\n  '2. Access - I will send a short list of the accounts and tools I need.',\n  '3. Weekly check-in - we will agree on a regular time to review priorities.',\n  '',\n  'Feel free to reply with any questions before then.',\n  '',\n  'Best regards,',\n  cfg.EXEC_NAME,\n].join('\\r\\n');\nconst b64 = s => Buffer.from(s, 'utf8').toString('base64');\nconst subject = `Welcome${cfg.company ? `, ${cfg.company}` : ''} - next steps`;\nconst mime = [`To: ${cfg.email}`, `Subject: =?UTF-8?B?${b64(subject)}?=`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=\"UTF-8\"', 'Content-Transfer-Encoding: base64'].join('\\r\\n') + '\\r\\n\\r\\n' + b64(body);\nconst raw = Buffer.from(mime, 'utf8').toString('base64').replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\nreturn [{ json: { draftBody: { message: { raw } } } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2920,
+        0
+      ],
+      "name": "Welcome Draft",
+      "id": "8d706084-bc89-50e7-8c48-79598f8ec9a4"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.draftBody) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3140,
+        0
+      ],
+      "name": "Gmail: Save Welcome Draft",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      },
+      "id": "6145d5a8-e52c-5612-9aff-8ad170a7a3a3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst links = {\n  drive: $('Drive: Create Client Folder').first().json.webViewLink,\n  trello: $('Trello: Create Board').first().json.url,\n  kickoff: $('Calendar: Kickoff Hold').first().json.htmlLink,\n};\nreturn [{ json: { ...links, label: cfg.label, sheetId: cfg.CLIENTS_SHEET_ID,\n  sheetRow: [$now.setZone(cfg.TZ).toISODate(), cfg.client, cfg.company, cfg.email, cfg.service, cfg.startDate, links.drive, links.trello],\n  text: `:handshake: New client set up: *${cfg.label}* (${cfg.service}, starts ${cfg.startDate})\\n- Drive: ${links.drive}\\n- Trello: ${links.trello}\\n- Kickoff hold: ${links.kickoff}\\n- Welcome email saved to Gmail drafts` } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        0
+      ],
+      "name": "Collect Links",
+      "id": "91949de1-f4f0-5d71-bdcb-e3a4674ddf7d"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d7f04caa-98e2-5950-a47f-0d9708e34937",
+              "leftValue": "={{ $json.sheetId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3580,
+        0
+      ],
+      "name": "Log to Sheet?",
+      "id": "53752646-3395-5e09-a1e9-2249e96c9901"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://sheets.googleapis.com/v4/spreadsheets/' + $json.sheetId + '/values/' + encodeURIComponent('A1:H1') + ':append' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "valueInputOption",
+              "value": "USER_ENTERED"
+            },
+            {
+              "name": "insertDataOption",
+              "value": "INSERT_ROWS"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ values: [$json.sheetRow] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3800,
+        -100
+      ],
+      "name": "Sheets: Append Client",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "AzGdAoskOF8IAqUb",
+          "name": "Google Sheets account"
+        }
+      },
+      "id": "f819df83-65d7-576d-a862-b0f224312444"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0C3KDMPP7W",
+          "mode": "id"
+        },
+        "text": "={{ $('Collect Links').first().json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "unfurl_links": false,
+          "unfurl_media": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        4020,
+        0
+      ],
+      "name": "Slack: Client Ready",
+      "credentials": {
+        "slackApi": {
+          "id": "lwPRukz1Q0g9OTNU",
+          "name": "Slack account"
+        }
+      },
+      "webhookId": "c5debd50-71b1-58eb-b6b4-25eb3237644c",
+      "id": "b4697597-8e5f-52d0-b31f-c1330b2efacb"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "Client set up!",
+        "completionMessage": "={{ 'Drive folder, Trello board, kickoff hold and welcome draft are ready for ' + $('Collect Links').first().json.label + '. Review the welcome email in Gmail Drafts before sending.' }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        4240,
+        0
+      ],
+      "name": "Form: Done",
+      "webhookId": "e4ac7154-3775-5aa8-b373-c3f1f4c13d41",
+      "id": "cc0e7941-80d7-59ba-9a49-1171c6cb5ff9"
+    }
+  ],
+  "connections": {
+    "Form: New Client": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Drive: Create Client Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive: Create Client Folder": {
+      "main": [
+        [
+          {
+            "node": "Subfolders To Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subfolders To Items": {
+      "main": [
+        [
+          {
+            "node": "Drive: Create Subfolder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive: Create Subfolder": {
+      "main": [
+        [
+          {
+            "node": "Board Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Board Request": {
+      "main": [
+        [
+          {
+            "node": "Trello: Create Board",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trello: Create Board": {
+      "main": [
+        [
+          {
+            "node": "Lists To Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lists To Items": {
+      "main": [
+        [
+          {
+            "node": "Trello: Create List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trello: Create List": {
+      "main": [
+        [
+          {
+            "node": "Checklist Card Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checklist Card Request": {
+      "main": [
+        [
+          {
+            "node": "Trello: Create Card",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trello: Create Card": {
+      "main": [
+        [
+          {
+            "node": "Trello: Create Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trello: Create Checklist": {
+      "main": [
+        [
+          {
+            "node": "Checklist Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checklist Items": {
+      "main": [
+        [
+          {
+            "node": "Trello: Add Checklist Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trello: Add Checklist Item": {
+      "main": [
+        [
+          {
+            "node": "Kickoff Hold Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kickoff Hold Request": {
+      "main": [
+        [
+          {
+            "node": "Calendar: Kickoff Hold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar: Kickoff Hold": {
+      "main": [
+        [
+          {
+            "node": "Welcome Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Welcome Draft": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Save Welcome Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Save Welcome Draft": {
+      "main": [
+        [
+          {
+            "node": "Collect Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Links": {
+      "main": [
+        [
+          {
+            "node": "Log to Sheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Sheet?": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Append Client",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack: Client Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Append Client": {
+      "main": [
+        [
+          {
+            "node": "Slack: Client Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Client Ready": {
+      "main": [
+        [
+          {
+            "node": "Form: Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}

@@ -1,0 +1,334 @@
+{
+  "id": "inv0iceRemind3r1",
+  "name": "Invoice & Payment Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Invoice & Payment Reminders\n\n**Flow:** weekdays 9:00 -> Config -> Google Sheets (Invoices tab) -> Plan Reminders:\n- **3 days before due** -> friendly heads-up\n- **1+ day overdue** -> polite reminder\n- **7+ days overdue** -> firmer reminder\n- **14+ days overdue** -> final notice\nEach reminder is saved as a **Gmail draft** to the client (never auto-sent) and the row's *Last Reminder* / *Reminder Count* columns are updated so the same stage is never drafted twice. Then a Slack summary of drafts + unpaid totals.\n\n**Before activating:**\n1. Make a Google Sheet from `templates/invoices-template.csv` (tab name **Invoices**).\n2. *Config* -> paste the sheet ID into `SPREADSHEET_ID`, set `EXEC_NAME` / `PAYMENT_DETAILS`.\n3. Mark invoices **Paid** in the *Status* column to stop reminders.",
+        "height": 480,
+        "width": 540,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        -560
+      ],
+      "name": "Setup Notes",
+      "id": "1def63af-c0dd-53f1-b71c-fb6544bf0e70"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        0
+      ],
+      "name": "Schedule Trigger",
+      "id": "e7770755-c0b8-5fcc-8170-a9e1d249af3a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst SPREADSHEET_ID = 'PASTE_YOUR_SHEET_ID_HERE';   // from the sheet URL: /spreadsheets/d/<ID>/edit\nconst SHEET_NAME = 'Invoices';\nconst EXEC_NAME = 'Marvin';\nconst PAYMENT_DETAILS = 'You can pay via bank transfer or the payment link on the invoice.';\nconst TZ = 'Asia/Manila';\nconst STAGES = [            // first matching stage (top to bottom) wins\n  { key: 'final',    minDaysOverdue: 14 },\n  { key: 'firm',     minDaysOverdue: 7 },\n  { key: 'overdue',  minDaysOverdue: 1 },\n  { key: 'upcoming', minDaysOverdue: -3 },   // 3 days before the due date\n];\n// ----------------------------\nif (SPREADSHEET_ID.startsWith('PASTE_')) throw new Error('Set SPREADSHEET_ID in the Config node (see Setup Notes).');\nreturn [{ json: { SPREADSHEET_ID, SHEET_NAME, EXEC_NAME, PAYMENT_DETAILS, TZ, STAGES } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        0
+      ],
+      "name": "Config",
+      "id": "3f602107-f8c4-5c55-b36a-ff7a85a4c5ea"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://sheets.googleapis.com/v4/spreadsheets/' + $json.SPREADSHEET_ID + '/values/' + encodeURIComponent($json.SHEET_NAME + '!A1:K1000') }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        0
+      ],
+      "name": "Sheets: Read Invoices",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "AzGdAoskOF8IAqUb",
+          "name": "Google Sheets account"
+        }
+      },
+      "id": "c6ca7f17-a31a-562d-91c5-bf52643fe9fd"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst rows = $input.first().json.values || [];\nif (rows.length < 2) return [];\nconst head = rows[0].map(h => String(h).trim().toLowerCase());\nconst col = name => head.indexOf(name);\nconst need = ['invoice #', 'client', 'client email', 'amount', 'currency', 'due date', 'status', 'last reminder', 'reminder count'];\nconst missing = need.filter(n => col(n) < 0);\nif (missing.length) throw new Error(`Invoices sheet is missing column(s): ${missing.join(', ')}. Use templates/invoices-template.csv.`);\nconst letter = i => String.fromCharCode(65 + i);\n\nconst today = $now.setZone(cfg.TZ).startOf('day');\nconst STAGE_RANK = { upcoming: 1, overdue: 2, firm: 3, final: 4 };\nconst out = [];\nconst totals = {};\nlet unpaidCount = 0, overdueCount = 0;\n\nrows.slice(1).forEach((r, idx) => {\n  const get = n => String(r[col(n)] ?? '').trim();\n  const status = get('status').toLowerCase();\n  if (!get('invoice #') || ['paid', 'void', 'cancelled'].includes(status)) return;\n  const amount = parseFloat(get('amount').replace(/[^0-9.\\-]/g, '')) || 0;\n  const currency = get('currency') || 'USD';\n  const dueRaw = get('due date');\n  let due = DateTime.fromISO(dueRaw, { zone: cfg.TZ });\n  if (!due.isValid) due = DateTime.fromFormat(dueRaw, 'M/d/yyyy', { zone: cfg.TZ });\n  if (!due.isValid) return;\n  unpaidCount++;\n  totals[currency] = (totals[currency] || 0) + amount;\n  const daysOverdue = Math.round(today.diff(due.startOf('day'), 'days').days);\n  if (daysOverdue > 0) overdueCount++;\n\n  const stage = cfg.STAGES.find(s => daysOverdue >= s.minDaysOverdue);\n  if (!stage) return;\n  const last = get('last reminder').split(' ')[0].toLowerCase();\n  if (STAGE_RANK[last] >= STAGE_RANK[stage.key]) return;   // this stage (or a later one) already drafted\n  const email = get('client email');\n  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return;\n\n  const inv = get('invoice #');\n  const amt = `${currency} ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;\n  const dueTxt = due.toFormat('LLLL d, yyyy');\n  const name = get('client').split(/\\s+/)[0] || 'there';\n  const copy = {\n    upcoming: [`Upcoming: Invoice ${inv} due ${dueTxt}`, `Just a friendly heads-up that invoice ${inv} for ${amt} is due on ${dueTxt}.`],\n    overdue:  [`Reminder: Invoice ${inv} is now due`, `I hope all is well. Invoice ${inv} for ${amt} was due on ${dueTxt} and still shows as open on our side. Could you let me know when we can expect payment?`],\n    firm:     [`Second reminder: Invoice ${inv} is ${daysOverdue} days overdue`, `Following up on invoice ${inv} for ${amt}, which was due on ${dueTxt} and is now ${daysOverdue} days overdue. Please arrange payment at your earliest convenience, or let me know if there's an issue I can help resolve.`],\n    final:    [`Final notice: Invoice ${inv} (${daysOverdue} days overdue)`, `This is a final reminder that invoice ${inv} for ${amt}, due on ${dueTxt}, remains unpaid (${daysOverdue} days overdue). Please settle it this week or reply so we can agree on a payment date.`],\n  }[stage.key];\n  const body = [`Hi ${name},`, '', copy[1], '', cfg.PAYMENT_DETAILS, '', 'If you have already sent payment, thank you - please ignore this note.', '', 'Best regards,', cfg.EXEC_NAME].join('\\r\\n');\n  const b64 = s => Buffer.from(s, 'utf8').toString('base64');\n  const mime = [`To: ${email}`, `Subject: =?UTF-8?B?${b64(copy[0])}?=`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=\"UTF-8\"', 'Content-Transfer-Encoding: base64'].join('\\r\\n') + '\\r\\n\\r\\n' + b64(body);\n  const raw = Buffer.from(mime, 'utf8').toString('base64').replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n\n  const rowNum = idx + 2;\n  const count = (parseInt(get('reminder count'), 10) || 0) + 1;\n  out.push({ json: {\n    invoice: inv, client: get('client'), amount: amt, stage: stage.key, daysOverdue,\n    draftBody: { message: { raw } },\n    updateRange: `${cfg.SHEET_NAME}!${letter(col('last reminder'))}${rowNum}:${letter(col('reminder count'))}${rowNum}`,\n    updateBody: { values: [col('reminder count') === col('last reminder') + 1\n      ? [`${stage.key} ${today.toISODate()}`, count]\n      : [`${stage.key} ${today.toISODate()}`]] },\n    countRange: `${cfg.SHEET_NAME}!${letter(col('reminder count'))}${rowNum}`, count,\n  } });\n});\n\nconst state = $getWorkflowStaticData('global');\nstate.summary = { totals, unpaidCount, overdueCount, at: $now.toISO() };\nif (!out.length) return [{ json: { none: true } }];\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        0
+      ],
+      "name": "Plan Reminders",
+      "id": "72f5a508-21c6-5d5b-9825-38b73e81100f"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "496c9d9d-4c7b-5357-b136-32ac4a0cc67d",
+              "leftValue": "={{ $json.none }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        280,
+        0
+      ],
+      "name": "Reminder Due?",
+      "id": "778d0b06-8dd8-51bc-a47e-d1d19fd40729"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Plan Reminders').item.json.draftBody) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        -100
+      ],
+      "name": "Gmail: Save Reminder Draft",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      },
+      "id": "419422a6-89b2-5885-b8a2-126737d60bc5"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://sheets.googleapis.com/v4/spreadsheets/' + $('Config').first().json.SPREADSHEET_ID + '/values/' + encodeURIComponent($('Plan Reminders').item.json.updateRange) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "valueInputOption",
+              "value": "USER_ENTERED"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Plan Reminders').item.json.updateBody) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        -100
+      ],
+      "name": "Sheets: Mark Reminded",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "AzGdAoskOF8IAqUb",
+          "name": "Google Sheets account"
+        }
+      },
+      "id": "fa8be096-eee9-58d0-a1d0-aafd15a4314b"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst s = $getWorkflowStaticData('global').summary || { totals: {}, unpaidCount: 0, overdueCount: 0 };\nlet drafted = [];\ntry { drafted = $('Plan Reminders').all().map(i => i.json).filter(j => !j.none); } catch (e) {}\nconst isMonday = $now.setZone(cfg.TZ).weekday === 1;\nif (!drafted.length && !isMonday) return [];\n\nconst totals = Object.entries(s.totals).map(([c, v]) => `${c} ${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`).join(' / ') || 'nothing';\nconst icon = { upcoming: ':calendar:', overdue: ':warning:', firm: ':exclamation:', final: ':rotating_light:' };\nconst lines = drafted.map(d => `${icon[d.stage] || ''} ${d.invoice} - ${d.client} - ${d.amount} (${d.stage}${d.daysOverdue > 0 ? `, ${d.daysOverdue}d overdue` : ''})`);\nconst text = [`*Invoices* - ${s.unpaidCount} unpaid (${s.overdueCount} overdue), outstanding: ${totals}`,\n  drafted.length ? `\\n*Reminder drafts ready in Gmail (${drafted.length}):*\\n${lines.join('\\n')}` : '\\n_No reminders due today._'].join('');\nreturn [{ json: { text } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        0
+      ],
+      "name": "Build Summary",
+      "id": "4e7c4e37-2e3f-596d-8950-c2a3eadfa5b2"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0C3KDMPP7W",
+          "mode": "id"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "unfurl_links": false,
+          "unfurl_media": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1160,
+        0
+      ],
+      "name": "Slack: Invoice Summary",
+      "credentials": {
+        "slackApi": {
+          "id": "lwPRukz1Q0g9OTNU",
+          "name": "Slack account"
+        }
+      },
+      "webhookId": "47436b1c-57f5-56b4-8dee-d437c317ae5a",
+      "id": "246b6dab-18b7-53b9-a494-bfe8de84cfae"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Read Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Read Invoices": {
+      "main": [
+        [
+          {
+            "node": "Plan Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Reminders": {
+      "main": [
+        [
+          {
+            "node": "Reminder Due?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reminder Due?": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Save Reminder Draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Save Reminder Draft": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Mark Reminded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Mark Reminded": {
+      "main": [
+        [
+          {
+            "node": "Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Summary": {
+      "main": [
+        [
+          {
+            "node": "Slack: Invoice Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}

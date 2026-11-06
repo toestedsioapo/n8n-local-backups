@@ -1,0 +1,2 @@
+Invoice #,Client,Client Email,Amount,Currency,Issue Date,Due Date,Status,Notes,Last Reminder,Reminder Count
+INV-001,Sample Client,client@example.com,1250.00,USD,2026-11-01,2026-11-30,Unpaid,Replace these sample rows,,

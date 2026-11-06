@@ -1,0 +1,495 @@
+{
+  "id": "mTzF1nd3rSlot5Ok",
+  "name": "Time-Zone Meeting Finder",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Time-Zone Meeting Finder\n\n**How to use:** open the form at `http://localhost:5678/form/find-meeting-time` (or click *Execute workflow* to test), list attendees as `email, Time zone`, pick a duration.\n\n**Flow:** Form -> Plan Search -> Google Calendar **free/busy** for you + attendees -> Find Fair Slots (inside everyone's working hours, ranked by how close each slot is to mid-day for every person) -> Form page: pick one of 3 options -> Calendar event with Google Meet link + invites -> Slack note -> confirmation page.\n\nAttendees whose calendars you can't see are planned around their working hours only.\n\n**Before activating:**\n1. *Plan Search* -> `MY_TZ`, `WORK_START`, `WORK_END`.\n2. *Build Event* -> `SEND_INVITES` (true = Google emails invites when booked).\n3. *Slack* node -> pick your channel.",
+        "height": 460,
+        "width": 540,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        -560
+      ],
+      "name": "Setup Notes",
+      "id": "97ec9477-341a-5b2c-a7ad-c56f1429475e"
+    },
+    {
+      "parameters": {
+        "formTitle": "Find a meeting time",
+        "formDescription": "Finds 3 fair time slots across everyone's time zones, then books the one you pick.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Meeting title",
+              "placeholder": "e.g. Q4 planning sync",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Attendees",
+              "fieldType": "textarea",
+              "placeholder": "dana@northbridge.com, America/New_York\ntomas@meridiansearch.com, Europe/London",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Duration (minutes)",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "30"
+                  },
+                  {
+                    "option": "45"
+                  },
+                  {
+                    "option": "60"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Search next N working days",
+              "fieldType": "number",
+              "placeholder": "5"
+            },
+            {
+              "fieldLabel": "Agenda / notes",
+              "fieldType": "textarea",
+              "placeholder": "Optional - added to the invite"
+            }
+          ]
+        },
+        "options": {
+          "path": "find-meeting-time",
+          "buttonLabel": "Submit",
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -600,
+        0
+      ],
+      "name": "Form: Meeting Request",
+      "webhookId": "ec2483cc-5249-5675-837d-cb13b629f24f",
+      "id": "6c89d304-ca85-5593-a9e9-df58499c557c"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst MY_TZ = 'Asia/Manila';\nconst MY_CALENDAR = 'primary';\nconst WORK_START = 9;        // local hour, applied to every participant\nconst WORK_END = 18;         // meetings must end by this local hour\nconst DEFAULT_DAYS = 5;\nconst MIN_LEAD_HOURS = 2;    // don't suggest slots starting sooner than this\n// ----------------------------\n\nconst f = $json;\nconst title = String(f['Meeting title'] || 'Meeting').trim();\nconst duration = parseInt(f['Duration (minutes)'], 10) || 30;\nconst days = Math.min(Math.max(parseInt(f['Search next N working days'], 10) || DEFAULT_DAYS, 1), 10);\n\nconst warnings = [];\nconst attendees = [];\nfor (const lineRaw of String(f['Attendees'] || '').split(/\\r?\\n/)) {\n  const line = lineRaw.trim();\n  if (!line) continue;\n  const email = (line.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/) || [])[0];\n  if (!email) { warnings.push(`Skipped \"${line}\" (no email found)`); continue; }\n  let tz = line.replace(email, '').replace(/[,;|]/g, ' ').trim().split(/\\s+/).find(Boolean) || MY_TZ;\n  if (!DateTime.now().setZone(tz).isValid) { warnings.push(`Unknown time zone \"${tz}\" for ${email} - used ${MY_TZ}`); tz = MY_TZ; }\n  if (!attendees.some(a => a.email === email.toLowerCase())) attendees.push({ email: email.toLowerCase(), tz });\n}\nif (!attendees.length) throw new Error('Add at least one attendee as \"email, Time/Zone\" (one per line).');\n\n// Calendar days to scan: enough to cover N working days plus weekends.\nconst start = $now.plus({ hours: MIN_LEAD_HOURS });\nconst end = $now.plus({ days: Math.ceil(days * 7 / 5) + 2 });\n\nreturn [{\n  json: {\n    title, duration, days, attendees, warnings, agenda: String(f['Agenda / notes'] || '').trim(),\n    MY_TZ, MY_CALENDAR, WORK_START, WORK_END,\n    windowStart: start.toUTC().toISO(), windowEnd: end.toUTC().toISO(),\n    freeBusyBody: {\n      timeMin: start.toUTC().toISO(), timeMax: end.toUTC().toISO(), timeZone: 'UTC',\n      items: [{ id: MY_CALENDAR }, ...attendees.map(a => ({ id: a.email }))],\n    },\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        0
+      ],
+      "name": "Plan Search",
+      "id": "e5e16a47-0bce-58b3-b6af-9ab45a82948c"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.freeBusyBody) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        0
+      ],
+      "name": "Calendar: Free/Busy",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "daYJ9jJhOTcshVKS",
+          "name": "Google Calendar account"
+        }
+      },
+      "id": "f9d42223-1800-5eab-a3d3-437e1dc2745e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst STEP_MINUTES = 30;   // candidate start times every 30 minutes\nconst MAX_OPTIONS = 3;\nconst FLEX_START = 7;      // if nobody overlaps in core hours, widen to these local hours\nconst FLEX_END = 21;\n// ----------------------------\n\nconst plan = $('Plan Search').first().json;\nconst cals = $json.calendars || {};\nconst people = [{ email: plan.MY_CALENDAR, tz: plan.MY_TZ, me: true }, ...plan.attendees];\n\nconst busy = {};\nconst unknown = [];\nfor (const p of people) {\n  const c = cals[p.email];\n  if (!c || (c.errors && c.errors.length)) { if (!p.me) unknown.push(p.email); busy[p.email] = []; continue; }\n  busy[p.email] = (c.busy || []).map(b => [DateTime.fromISO(b.start).toMillis(), DateTime.fromISO(b.end).toMillis()]);\n}\n\nconst winStart = DateTime.fromISO(plan.windowStart);\nconst winEnd = DateTime.fromISO(plan.windowEnd);\nlet t0 = winStart.startOf('hour');\nwhile (t0 < winStart) t0 = t0.plus({ minutes: STEP_MINUTES });\n\nfunction search(workStart, workEnd) {\nconst workDaysSeen = new Set();\nconst candidates = [];\nfor (let t = t0; t < winEnd; t = t.plus({ minutes: STEP_MINUTES })) {\n  const s = t, e = t.plus({ minutes: plan.duration });\n  const myDay = s.setZone(plan.MY_TZ);\n  if (myDay.weekday <= 5) workDaysSeen.add(myDay.toISODate());\n  if (workDaysSeen.size > plan.days) break;\n\n  let ok = true, score = 0;\n  for (const p of people) {\n    const ls = s.setZone(p.tz), le = e.setZone(p.tz);\n    const startH = ls.hour + ls.minute / 60, endH = le.hour + le.minute / 60 || 24;\n    if (ls.weekday > 5 || ls.toISODate() !== le.toISODate() || startH < workStart || endH > workEnd) { ok = false; break; }\n    const sm = s.toMillis(), em = e.toMillis();\n    if (busy[p.email].some(([bs, be]) => bs < em && be > sm)) { ok = false; break; }\n    const mid = (plan.WORK_START + plan.WORK_END) / 2;\n    score += Math.abs((startH + endH) / 2 - mid);\n  }\n  if (ok) candidates.push({ s, e, score });\n}\nreturn candidates;\n}\n\nlet flex = false;\nlet candidates = search(plan.WORK_START, plan.WORK_END);\nif (!candidates.length) { candidates = search(FLEX_START, FLEX_END); flex = candidates.length > 0; }\n\n// Pick the fairest slots, preferring different days.\ncandidates.sort((a, b) => a.score - b.score || a.s.toMillis() - b.s.toMillis());\nconst picked = [];\nfor (const c of candidates) {\n  if (picked.length >= MAX_OPTIONS) break;\n  if (!picked.some(p => p.s.setZone(plan.MY_TZ).toISODate() === c.s.setZone(plan.MY_TZ).toISODate())) picked.push(c);\n}\nfor (const c of candidates) {\n  if (picked.length >= MAX_OPTIONS) break;\n  if (!picked.includes(c) && !picked.some(p => p.s < c.e && c.s < p.e)) picked.push(c);\n}\npicked.sort((a, b) => a.s.toMillis() - b.s.toMillis());\n\nconst short = tz => tz.split('/').pop().replace(/_/g, ' ');\nconst options = picked.map(c => {\n  const mine = c.s.setZone(plan.MY_TZ);\n  const others = [...new Set(plan.attendees.map(a => a.tz))].filter(tz => tz !== plan.MY_TZ)\n    .map(tz => `${c.s.setZone(tz).toFormat('ccc h:mm a')} ${short(tz)}`);\n  const label = `${mine.toFormat('ccc LLL d, h:mm a')} ${short(plan.MY_TZ)}` + (others.length ? ` | ${others.join(' | ')}` : '');\n  return { label, start: c.s.toUTC().toISO(), end: c.e.toUTC().toISO() };\n});\n\nconst warnings = flex ? [...plan.warnings, `No overlap inside ${plan.WORK_START}:00-${plan.WORK_END}:00 for everyone, so these slots use ${FLEX_START}:00-${FLEX_END}:00 local time`] : plan.warnings;\nreturn [{ json: { found: options.length > 0, options, unknown, warnings, flex } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        0
+      ],
+      "name": "Find Fair Slots",
+      "id": "d7339588-68f1-5303-8b8b-cd956fcd20f9"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "12343f70-14c4-5baa-bebd-534e529529e0",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        280,
+        0
+      ],
+      "name": "Any Slots?",
+      "id": "d557e5d5-f9a8-57bf-9832-ee1281ae37d8"
+    },
+    {
+      "parameters": {
+        "defineForm": "json",
+        "jsonOutput": "={{ JSON.stringify([{ fieldLabel: 'Pick a time', fieldType: 'radio', fieldOptions: { values: $json.options.map(o => ({ option: o.label })).concat([{ option: 'None of these - cancel' }]) }, requiredField: true }]) }}",
+        "options": {
+          "formTitle": "Pick a time",
+          "formDescription": "={{ 'Times are shown in each person\\'s time zone.' + ($json.unknown.length ? ' Calendars not visible (planned on working hours only): ' + $json.unknown.join(', ') + '.' : '') + ($json.warnings.length ? ' Notes: ' + $json.warnings.join('; ') : '') }}",
+          "buttonLabel": "Confirm"
+        }
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        500,
+        -100
+      ],
+      "name": "Form: Pick a Slot",
+      "webhookId": "8964ada7-27f2-5485-a25f-e0241dd5f3d7",
+      "id": "139c79bb-87bc-5da0-9df8-ee53a197d80f"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst SEND_INVITES = true;      // true = Google emails the invite to attendees\nconst ADD_MEET_LINK = true;\n// ----------------------------\nconst plan = $('Plan Search').first().json;\nconst { options } = $('Any Slots?').first().json;\nconst raw = $json['Pick a time'];\nconst choice = Array.isArray(raw) ? raw[0] : raw;\nconst opt = options.find(o => o.label === choice);\nif (!opt) return [{ json: { booked: false } }];\n\nconst event = {\n  summary: plan.title,\n  description: [plan.agenda, 'Scheduled with the n8n Time-Zone Meeting Finder.'].filter(Boolean).join('\\n\\n'),\n  start: { dateTime: opt.start, timeZone: plan.MY_TZ },\n  end: { dateTime: opt.end, timeZone: plan.MY_TZ },\n  attendees: plan.attendees.map(a => ({ email: a.email })),\n};\nif (ADD_MEET_LINK) event.conferenceData = { createRequest: { requestId: `n8n-${$execution.id}-${Date.now()}`, conferenceSolutionKey: { type: 'hangoutsMeet' } } };\nreturn [{ json: { booked: true, label: opt.label, event, sendUpdates: SEND_INVITES ? 'all' : 'none', calendarId: plan.MY_CALENDAR } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        -100
+      ],
+      "name": "Build Event",
+      "id": "f8e9aa21-fc69-5408-b1d1-5003e3ef4c5a"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c7463cc0-30c6-5056-9a13-ed15926e78d2",
+              "leftValue": "={{ $json.booked }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        940,
+        -100
+      ],
+      "name": "Booked?",
+      "id": "9e6b33bd-189d-5e0c-8af1-694e1a500f22"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent($json.calendarId) + '/events' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sendUpdates",
+              "value": "={{ $json.sendUpdates }}"
+            },
+            {
+              "name": "conferenceDataVersion",
+              "value": "1"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.event) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1160,
+        -180
+      ],
+      "name": "Calendar: Create Event",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "daYJ9jJhOTcshVKS",
+          "name": "Google Calendar account"
+        }
+      },
+      "id": "cbf8d9d5-8976-55ae-b374-b6505e6083bc"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0C3KDMPP7W",
+          "mode": "id"
+        },
+        "text": "={{ ':calendar: Booked *' + $json.summary + '* - ' + $('Build Event').first().json.label + ' (' + ($json.attendees || []).length + ' attendee(s))' + ($json.hangoutLink ? ' - ' + $json.hangoutLink : '') }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "unfurl_links": false,
+          "unfurl_media": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1380,
+        -180
+      ],
+      "name": "Slack: Booked",
+      "credentials": {
+        "slackApi": {
+          "id": "lwPRukz1Q0g9OTNU",
+          "name": "Slack account"
+        }
+      },
+      "webhookId": "b0755136-eb68-5daf-bfae-f48171b0ca6a",
+      "id": "0ac69b79-867a-5b74-8637-d0e28dc483c7"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "Booked!",
+        "completionMessage": "={{ $('Calendar: Create Event').first().json.summary + ' is on the calendar for ' + $('Build Event').first().json.label + '.' + ($('Calendar: Create Event').first().json.hangoutLink ? ' Meet link: ' + $('Calendar: Create Event').first().json.hangoutLink : '') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        -180
+      ],
+      "name": "Form: Booked",
+      "webhookId": "3ead475d-e72d-5cae-a0e4-a0a969909a1e",
+      "id": "b02a688b-47e3-5b56-98fb-315a18f0b7e8"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "Nothing booked",
+        "completionMessage": "No problem - nothing was added to your calendar.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        0
+      ],
+      "name": "Form: Cancelled",
+      "webhookId": "252ef3c2-a3b5-55dd-bc5b-9fdeae7de925",
+      "id": "ba289d05-603b-50d2-90eb-658d4b553440"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "No common time found",
+        "completionMessage": "={{ 'No slot fits everyone\\'s working hours in that range. Try a longer search window or a shorter meeting.' + ($json.unknown.length ? ' (Calendars not visible: ' + $json.unknown.join(', ') + ')' : '') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        500,
+        140
+      ],
+      "name": "Form: No Slots",
+      "webhookId": "6d6e7b7c-3050-5a98-a0a4-49571894a667",
+      "id": "fe15c92c-f6d9-5362-9a4f-d1cb92e42a1a"
+    }
+  ],
+  "connections": {
+    "Form: Meeting Request": {
+      "main": [
+        [
+          {
+            "node": "Plan Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Search": {
+      "main": [
+        [
+          {
+            "node": "Calendar: Free/Busy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar: Free/Busy": {
+      "main": [
+        [
+          {
+            "node": "Find Fair Slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Fair Slots": {
+      "main": [
+        [
+          {
+            "node": "Any Slots?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Slots?": {
+      "main": [
+        [
+          {
+            "node": "Form: Pick a Slot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Form: No Slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form: Pick a Slot": {
+      "main": [
+        [
+          {
+            "node": "Build Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Event": {
+      "main": [
+        [
+          {
+            "node": "Booked?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Booked?": {
+      "main": [
+        [
+          {
+            "node": "Calendar: Create Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Form: Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar: Create Event": {
+      "main": [
+        [
+          {
+            "node": "Slack: Booked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Booked": {
+      "main": [
+        [
+          {
+            "node": "Form: Booked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}

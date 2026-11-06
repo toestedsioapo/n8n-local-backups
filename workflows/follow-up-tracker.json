@@ -1,0 +1,491 @@
+{
+  "id": "fUpTrk7AwaitRp01",
+  "name": "Follow-Up Tracker (Awaiting Reply)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Follow-Up Tracker (Awaiting Reply)\n\n**How to use:** in Gmail, put the label **Awaiting reply** on any email you sent and need an answer to.\n\n**Flow:** weekdays 9:00 -> Gmail: find label -> Gmail: threads with that label -> load each thread -> Classify:\n- **Reply arrived** -> label removed automatically\n- **No reply after X days** -> a polite follow-up is saved as a **Gmail draft** in the same thread (never auto-sent)\n- **Still waiting** -> listed in the digest\n-> Slack digest of all three.\n\n**Before activating:**\n1. Create the Gmail label `Awaiting reply` (or change `LABEL_NAME` in *Config*).\n2. *Config* -> `NUDGE_AFTER_DAYS`, `EXEC_NAME`.\n3. *Slack* node -> pick your channel.",
+        "height": 440,
+        "width": 540,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        -560
+      ],
+      "name": "Setup Notes",
+      "id": "074cfb35-548b-5966-919b-64bcfc158cea"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        0
+      ],
+      "name": "Schedule Trigger",
+      "id": "d7693aaf-88ff-501e-9b17-6e8f461a7546"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- CONFIG ----------\nconst LABEL_NAME = 'Awaiting reply';\nconst NUDGE_AFTER_DAYS = 3;        // business etiquette: 2-4 days\nconst RENUDGE_AFTER_DAYS = 7;      // draft another nudge if still silent this long after the last one\nconst EXEC_NAME = 'Marvin';\nconst TZ = 'Asia/Manila';\n// ----------------------------\nreturn [{ json: { LABEL_NAME, NUDGE_AFTER_DAYS, RENUDGE_AFTER_DAYS, EXEC_NAME, TZ } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        0
+      ],
+      "name": "Config",
+      "id": "8b9e5945-0fbe-5389-b3ca-7c05b8ce7c5a"
+    },
+    {
+      "parameters": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        0
+      ],
+      "name": "Gmail: List Labels",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      },
+      "id": "388078a2-6e5d-5361-a9f7-7c790a9fc1eb"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst labels = $input.first().json.labels || [];\nconst label = labels.find(l => String(l.name).toLowerCase() === cfg.LABEL_NAME.toLowerCase());\nif (!label) {\n  throw new Error(`Gmail label \"${cfg.LABEL_NAME}\" not found. Create it in Gmail (Settings -> Labels -> Create new label) and add it to emails you're waiting on.`);\n}\nreturn [{ json: { labelId: label.id, labelName: label.name } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        0
+      ],
+      "name": "Resolve Label",
+      "id": "8a714897-d5e9-5038-a78f-cd4ba4baa5a1"
+    },
+    {
+      "parameters": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/threads",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "labelIds",
+              "value": "={{ $json.labelId }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        0
+      ],
+      "name": "Gmail: Labeled Threads",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      },
+      "id": "270928b8-bba5-566d-bfe3-63ead16416ff"
+    },
+    {
+      "parameters": {
+        "jsCode": "const threads = $input.first().json.threads || [];\nreturn threads.map(t => ({ json: { threadId: t.id } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ],
+      "name": "Threads To Items",
+      "id": "4fcfff43-bcc3-528b-b38c-1a3ff6358cb8"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/threads/' + $json.threadId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "metadata"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "name": "Gmail: Get Thread",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      },
+      "id": "cafd4ac7-4af3-5218-8235-58649024eae7"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst { labelId } = $('Resolve Label').first().json;\nconst state = $getWorkflowStaticData('global');\nstate.nudged = state.nudged || {};\n\nconst now = $now.toMillis();\nconst DAY = 86400000;\nconst header = (msg, name) => ((msg.payload && msg.payload.headers) || []).find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';\nconst firstName = (addr) => {\n  const m = String(addr).match(/^\\s*\"?([^\"<@,]+?)\"?\\s*</);\n  const n = m ? m[1].trim() : String(addr).split('@')[0];\n  return n.split(/[\\s._-]+/)[0].replace(/^./, c => c.toUpperCase());\n};\n\nconst out = [];\nfor (const item of $input.all()) {\n  const t = item.json;\n  const msgs = (t.messages || []).slice().sort((a, b) => Number(a.internalDate) - Number(b.internalDate));\n  if (!msgs.length) continue;\n  const last = msgs[msgs.length - 1];\n  const lastIsMine = (last.labelIds || []).includes('SENT');\n  const lastSentByMe = [...msgs].reverse().find(m => (m.labelIds || []).includes('SENT')) || last;\n  const subject = header(msgs[0], 'Subject') || '(no subject)';\n  const ageDays = Math.floor((now - Number(last.internalDate)) / DAY);\n  const to = header(lastSentByMe, 'To');\n  const base = { threadId: t.id, subject, ageDays, to, link: `https://mail.google.com/mail/u/0/#all/${t.id}`, labelId };\n\n  if (!lastIsMine) {\n    delete state.nudged[t.id];\n    out.push({ json: { ...base, action: 'replied', from: header(last, 'From') } });\n    continue;\n  }\n  const prev = state.nudged[t.id];\n  const due = ageDays >= cfg.NUDGE_AFTER_DAYS &&\n    (!prev || prev.lastMessageId !== last.id || (now - prev.at) >= cfg.RENUDGE_AFTER_DAYS * DAY);\n  if (!due) {\n    out.push({ json: { ...base, action: 'waiting', nudgedAlready: !!prev } });\n    continue;\n  }\n\n  // Build a reply draft in the same thread (plain text, never sent automatically).\n  const msgId = header(last, 'Message-ID');\n  const refs = [header(last, 'References'), msgId].filter(Boolean).join(' ').trim();\n  const body = [\n    `Hi ${firstName(to)},`,\n    '',\n    `Just following up on my note below about \"${subject.replace(/^(re|fwd?):\\s*/i, '')}\". Is there anything you need from me to move this forward?`,\n    '',\n    'Thanks,',\n    cfg.EXEC_NAME,\n  ].join('\\r\\n');\n  const b64 = s => Buffer.from(s, 'utf8').toString('base64');\n  const subj = /^re:/i.test(subject) ? subject : `Re: ${subject}`;\n  const mime = [\n    `To: ${to}`,\n    header(lastSentByMe, 'Cc') ? `Cc: ${header(lastSentByMe, 'Cc')}` : null,\n    `Subject: =?UTF-8?B?${b64(subj)}?=`,\n    msgId ? `In-Reply-To: ${msgId}` : null,\n    refs ? `References: ${refs}` : null,\n    'MIME-Version: 1.0',\n    'Content-Type: text/plain; charset=\"UTF-8\"',\n    'Content-Transfer-Encoding: base64',\n  ].filter(Boolean).join('\\r\\n') + '\\r\\n\\r\\n' + b64(body);\n  const raw = Buffer.from(mime, 'utf8').toString('base64').replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n  state.nudged[t.id] = { lastMessageId: last.id, at: now };\n  out.push({ json: { ...base, action: 'nudge', draftBody: { message: { raw, threadId: t.id } } } });\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        0
+      ],
+      "name": "Classify Threads",
+      "id": "84dad3d5-9302-507c-a4f5-610f0f981088"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4a7c881e-1f1b-574b-b10b-24586fa116b0",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "replied",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1160,
+        -140
+      ],
+      "name": "Reply Arrived?",
+      "id": "c3d169b5-bd5b-550a-be7b-a6ed63183fcd"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/threads/' + $json.threadId + '/modify' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ removeLabelIds: [$json.labelId] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1380,
+        -220
+      ],
+      "name": "Gmail: Remove Label",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      },
+      "id": "42d5de54-ac82-5984-8b3b-84d15315cb62"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "015b511f-02d5-5de8-8d32-9f07944c615f",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "nudge",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1380,
+        -60
+      ],
+      "name": "Needs Nudge?",
+      "id": "0876a4f8-9636-5eff-84e0-2bf49acfd23c"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.draftBody) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        -60
+      ],
+      "name": "Gmail: Save Nudge Draft",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "kEt1C0hMB407TOJm",
+          "name": "Gmail account"
+        }
+      },
+      "id": "46f9dff3-d687-57f8-b1b5-66342af209e8"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst items = $('Classify Threads').all().map(i => i.json);\nconst esc = (s = '') => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst line = t => `- <${t.link}|${esc(t.subject).slice(0, 90)}> - ${esc(t.to || t.from || '').slice(0, 60)} (${t.ageDays}d)`;\nconst group = a => items.filter(t => t.action === a);\nconst replied = group('replied'), nudged = group('nudge'), waiting = group('waiting');\nif (!items.length) return [];\n\nconst sections = [];\nif (nudged.length) sections.push(`*:envelope_with_arrow: Follow-up drafts ready (${nudged.length})* - review in Gmail Drafts\\n` + nudged.map(line).join('\\n'));\nif (replied.length) sections.push(`*:white_check_mark: Replied - label cleared (${replied.length})*\\n` + replied.map(line).join('\\n'));\nif (waiting.length) sections.push(`*:hourglass_flowing_sand: Still waiting (${waiting.length})*\\n` + waiting.map(line).join('\\n'));\n\nconst blocks = [{ type: 'header', text: { type: 'plain_text', text: `Follow-up tracker - ${$now.setZone(cfg.TZ).toFormat('ccc, LLL d')}` } }]\n  .concat(sections.map(s => ({ type: 'section', text: { type: 'mrkdwn', text: s.slice(0, 2900) } })));\nreturn [{ json: { blocks, text: `Follow-ups: ${nudged.length} drafted, ${replied.length} replied, ${waiting.length} waiting` } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        160
+      ],
+      "name": "Build Digest",
+      "id": "e5ef6e53-c723-5dec-987b-d417903e05fc"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0C3KDMPP7W",
+          "mode": "id"
+        },
+        "messageType": "block",
+        "blocksUi": "={{ JSON.stringify({ blocks: $json.blocks }) }}",
+        "text": "={{ $json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "unfurl_links": false,
+          "unfurl_media": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1380,
+        160
+      ],
+      "name": "Slack: Send Digest",
+      "credentials": {
+        "slackApi": {
+          "id": "lwPRukz1Q0g9OTNU",
+          "name": "Slack account"
+        }
+      },
+      "webhookId": "07102e8c-ac28-5900-b829-13eeb67de394",
+      "id": "c8b44b35-cb49-5134-9be6-df68ba0cb85e"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Gmail: List Labels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: List Labels": {
+      "main": [
+        [
+          {
+            "node": "Resolve Label",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Label": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Labeled Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Labeled Threads": {
+      "main": [
+        [
+          {
+            "node": "Threads To Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Threads To Items": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Get Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Get Thread": {
+      "main": [
+        [
+          {
+            "node": "Classify Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Threads": {
+      "main": [
+        [
+          {
+            "node": "Reply Arrived?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply Arrived?": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Remove Label",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs Nudge?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Nudge?": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Save Nudge Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Slack: Send Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}
